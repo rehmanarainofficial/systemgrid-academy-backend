@@ -12,9 +12,29 @@ export class LeadsService {
   ) {}
 
   create(createLeadDto: CreateLeadDto) {
+    const {
+      city,
+      educationLevel,
+      preferredMode,
+      preferredTiming,
+      selectedCourse,
+      ...leadData
+    } = createLeadDto;
+    const admissionContext = [
+      city ? `City: ${city}` : null,
+      educationLevel ? `Education: ${educationLevel}` : null,
+      preferredMode ? `Preferred mode: ${preferredMode}` : null,
+      preferredTiming ? `Preferred timing: ${preferredTiming}` : null,
+    ].filter((value): value is string => Boolean(value));
+    const message = [leadData.message, ...admissionContext]
+      .filter((value): value is string => Boolean(value))
+      .join('\n');
+
     const lead = this.leadsRepository.create({
-      ...createLeadDto,
-      source: createLeadDto.source ?? 'website',
+      ...leadData,
+      courseInterest: selectedCourse ?? leadData.courseInterest,
+      message: message || undefined,
+      source: leadData.source ?? 'website',
       status: 'new',
     });
 

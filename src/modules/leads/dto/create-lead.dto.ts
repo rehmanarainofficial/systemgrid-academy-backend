@@ -28,6 +28,38 @@ export class CreateLeadDto {
 
   @IsOptional()
   @IsString()
-  @IsIn(['website', 'demo_class', 'admissions', 'contact'])
+  @MaxLength(80)
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  educationLevel?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['online', 'physical', 'hybrid'])
+  preferredMode?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['morning', 'afternoon', 'evening', 'weekend', 'flexible'])
+  preferredTiming?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  selectedCourse?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn([
+    'website',
+    'demo_class',
+    'admissions',
+    'admissions_page',
+    'contact',
+    'course_detail_page',
+  ])
   source?: string;
 }
