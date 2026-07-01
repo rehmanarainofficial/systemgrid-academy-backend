@@ -9,6 +9,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import type { Relation } from 'typeorm';
 import { UserRole } from '../../common/enums/user-role.enum';
 
 export type StudentStatus = 'active' | 'inactive' | 'graduated' | 'dropped';
@@ -55,7 +56,7 @@ export class User {
   lastLoginAt?: Date;
 
   @OneToOne(() => StudentProfile, (profile) => profile.user)
-  studentProfile?: StudentProfile;
+  studentProfile?: Relation<StudentProfile>;
 
   @CreateDateColumn()
   createdAt: Date;
