@@ -24,6 +24,8 @@ import { UploadsModule } from './modules/uploads/uploads.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
+import { StudentPortalModule } from './modules/student-portal/student-portal.module';
+import { AdminDashboardModule } from './modules/admin-dashboard/admin-dashboard.module';
 
 @Module({
   imports: [
@@ -50,6 +52,8 @@ import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
     ReportsModule,
     SettingsModule,
     AuditLogsModule,
+    StudentPortalModule,
+    AdminDashboardModule,
   ],
   controllers: [AppController],
   providers: [AppService],

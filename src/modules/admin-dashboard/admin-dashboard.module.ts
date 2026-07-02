@@ -2,36 +2,33 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import {
   Attendance,
-  Assignment,
-  AuditLog,
   Batch,
   Certificate,
   Course,
   Enrollment,
   FeePlan,
+  Lead,
+  Payment,
   StudentProfile,
-  User,
 } from '../../database/entities';
-import { StudentsController } from './students.controller';
-import { StudentsService } from './students.service';
+import { AdminDashboardController } from './admin-dashboard.controller';
+import { AdminDashboardService } from './admin-dashboard.service';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
-      User,
       StudentProfile,
+      Lead,
       Course,
       Batch,
       Enrollment,
-      Attendance,
-      Assignment,
+      Payment,
       FeePlan,
+      Attendance,
       Certificate,
-      AuditLog,
     ]),
   ],
-  controllers: [StudentsController],
-  providers: [StudentsService],
-  exports: [StudentsService],
+  controllers: [AdminDashboardController],
+  providers: [AdminDashboardService],
 })
-export class StudentsModule {}
+export class AdminDashboardModule {}

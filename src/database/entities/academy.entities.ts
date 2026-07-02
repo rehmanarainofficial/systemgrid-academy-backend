@@ -22,9 +22,19 @@ export type AttendanceStatus = 'present' | 'absent' | 'late' | 'leave';
 export type SubmissionStatus = 'submitted' | 'checked' | 'late' | 'rejected';
 export type FeeStatus = 'unpaid' | 'partial' | 'paid';
 export type PaymentStatus = 'pending' | 'verified' | 'rejected';
+export type InvoiceStatus = 'paid' | 'unpaid' | 'cancelled';
 export type CertificateStatus = 'issued' | 'revoked';
 export type LeadStatus = 'new' | 'contacted' | 'converted' | 'rejected';
-export type NotificationType = 'info' | 'fee' | 'class' | 'assignment' | 'certificate';
+export type NotificationType =
+  | 'system'
+  | 'info'
+  | 'fee'
+  | 'class'
+  | 'assignment'
+  | 'certificate'
+  | 'payment';
+export type CourseResourceType = 'pdf' | 'link' | 'video' | 'file';
+export type ClassScheduleStatus = 'upcoming' | 'completed' | 'cancelled';
 
 @Entity('users')
 export class User {
@@ -90,6 +100,9 @@ export class StudentProfile {
   gender?: string;
 
   @Column({ nullable: true })
+  educationLevel?: string;
+
+  @Column({ nullable: true })
   address?: string;
 
   @Column({ nullable: true })
@@ -136,6 +149,12 @@ export class CourseCategory {
 
   @OneToMany(() => Course, (course) => course.category)
   courses: Course[];
+
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
 }
 
 @Entity('courses')
@@ -217,6 +236,12 @@ export class CourseModule {
 
   @Column({ default: 0 })
   sortOrder: number;
+
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
 }
 
 @Entity('lessons')
@@ -253,6 +278,12 @@ export class Lesson {
 
   @Column({ default: false })
   isPublished: boolean;
+
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
 }
 
 @Entity('instructors')
@@ -280,6 +311,12 @@ export class Instructor {
 
   @Column({ default: true })
   isActive: boolean;
+
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
 }
 
 @Entity('batches')
@@ -322,6 +359,12 @@ export class Batch {
 
   @Column({ default: 'upcoming' })
   status: BatchStatus;
+
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
 }
 
 @Entity('enrollments')
@@ -351,6 +394,48 @@ export class Enrollment {
   progressPercentage: number;
 }
 
+@Entity('class_schedules')
+export class ClassSchedule {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @ManyToOne(() => Batch)
+  batch: Batch;
+
+  @ManyToOne(() => Course)
+  course: Course;
+
+  @ManyToOne(() => Lesson, { nullable: true })
+  lesson?: Lesson;
+
+  @Column({ type: 'date' })
+  date: string;
+
+  @Column({ type: 'time' })
+  startTime: string;
+
+  @Column({ type: 'time' })
+  endTime: string;
+
+  @Column({ default: 'online' })
+  mode: CourseMode;
+
+  @Column({ nullable: true })
+  meetingUrl?: string;
+
+  @Column({ nullable: true })
+  location?: string;
+
+  @Column({ default: 'upcoming' })
+  status: ClassScheduleStatus;
+
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
+}
+
 @Entity('attendance')
 export class Attendance {
   @PrimaryGeneratedColumn('uuid')
@@ -361,6 +446,12 @@ export class Attendance {
 
   @ManyToOne(() => Batch)
   batch: Batch;
+
+  @ManyToOne(() => Course, { nullable: true })
+  course?: Course;
+
+  @ManyToOne(() => ClassSchedule, { nullable: true })
+  classSchedule?: ClassSchedule;
 
   @Column({ type: 'date' })
   date: string;
@@ -373,6 +464,12 @@ export class Attendance {
 
   @ManyToOne(() => User, { nullable: true })
   markedBy?: User;
+
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
 }
 
 @Entity('assignments')
@@ -385,6 +482,9 @@ export class Assignment {
 
   @ManyToOne(() => Batch, { nullable: true })
   batch?: Batch;
+
+  @ManyToOne(() => CourseModule, { nullable: true })
+  module?: CourseModule;
 
   @Column()
   title: string;
@@ -403,6 +503,12 @@ export class Assignment {
 
   @Column({ default: false })
   isPublished: boolean;
+
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
 }
 
 @Entity('assignment_submissions')
@@ -436,6 +542,12 @@ export class AssignmentSubmission {
 
   @Column({ type: 'timestamptz', nullable: true })
   checkedAt?: Date;
+
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
 }
 
 @Entity('fee_plans')
@@ -456,11 +568,26 @@ export class FeePlan {
   @Column({ type: 'numeric' })
   payableAmount: number;
 
+  @Column({ type: 'numeric', default: 0 })
+  paidAmount: number;
+
+  @Column({ type: 'numeric', default: 0 })
+  pendingAmount: number;
+
   @Column({ default: 'full' })
   installmentType: 'full' | 'monthly' | 'custom';
 
+  @Column({ type: 'date', nullable: true })
+  dueDate?: string;
+
   @Column({ default: 'unpaid' })
   status: FeeStatus;
+
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
 }
 
 @Entity('payments')
@@ -494,6 +621,36 @@ export class Payment {
 
   @Column({ type: 'text', nullable: true })
   notes?: string;
+
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
+}
+
+@Entity('course_resources')
+export class CourseResource {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @ManyToOne(() => Course)
+  course: Relation<Course>;
+
+  @ManyToOne(() => Lesson, { nullable: true })
+  lesson?: Relation<Lesson>;
+
+  @Column()
+  title: string;
+
+  @Column({ default: 'file' })
+  type: CourseResourceType;
+
+  @Column()
+  url: string;
+
+  @CreateDateColumn()
+  createdAt: Date;
 }
 
 @Entity('invoices')
@@ -514,8 +671,14 @@ export class Invoice {
   @CreateDateColumn()
   issuedAt: Date;
 
+  @Column({ default: 'paid' })
+  status: InvoiceStatus;
+
   @Column({ nullable: true })
   pdfUrl?: string;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
 }
 
 @Entity('certificates')
@@ -546,6 +709,12 @@ export class Certificate {
 
   @Column({ default: 'issued' })
   status: CertificateStatus;
+
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
 }
 
 @Entity('leads')
@@ -565,8 +734,23 @@ export class Lead {
   @Column({ nullable: true })
   courseInterest?: string;
 
+  @Column({ nullable: true })
+  city?: string;
+
+  @Column({ nullable: true })
+  preferredMode?: string;
+
+  @Column({ nullable: true })
+  preferredTiming?: string;
+
+  @Column({ nullable: true })
+  studentLevel?: string;
+
   @Column({ type: 'text', nullable: true })
   message?: string;
+
+  @Column({ type: 'text', nullable: true })
+  notes?: string;
 
   @Column({ default: 'website' })
   source: string;
@@ -579,6 +763,9 @@ export class Lead {
 
   @CreateDateColumn()
   createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
 }
 
 @Entity('notifications')
@@ -601,8 +788,14 @@ export class Notification {
   @Column({ default: false })
   isRead: boolean;
 
+  @Column({ nullable: true })
+  actionUrl?: string;
+
   @CreateDateColumn()
   createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
 }
 
 @Entity('settings')
