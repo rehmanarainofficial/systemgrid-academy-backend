@@ -1,5 +1,6 @@
 import {
   IsBoolean,
+  IsArray,
   IsIn,
   IsInt,
   IsNumber,
@@ -38,10 +39,11 @@ export class CreateAdminCourseDto {
   @MaxLength(160)
   title: string;
 
+  @IsOptional()
   @IsString()
   @MinLength(2)
   @MaxLength(180)
-  slug: string;
+  slug?: string;
 
   @IsString()
   @MinLength(10)
@@ -55,6 +57,12 @@ export class CreateAdminCourseDto {
   @IsOptional()
   @IsUrl({ require_tld: false })
   thumbnail?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(40, { each: true })
+  techStack?: string[];
 
   @IsString()
   categoryId: string;

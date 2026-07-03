@@ -17,6 +17,8 @@ import {
   Course,
   Enrollment,
   FeePlan,
+  Gender,
+  StudentSource,
   StudentProfile,
   User,
 } from '../../database/entities';
@@ -280,8 +282,8 @@ export class StudentsService {
           address: dto.address?.trim() || undefined,
           educationLevel: dto.educationLevel?.trim() || undefined,
           dateOfBirth: dto.dateOfBirth,
-          gender: dto.gender,
-          source: dto.source ?? 'admin',
+          gender: this.normalizeGender(dto.gender),
+          source: this.normalizeSource(dto.source),
           status: dto.status,
         }),
       );
@@ -497,5 +499,17 @@ export class StudentsService {
       recordId,
       metadata,
     });
+  }
+
+  private normalizeGender(value?: string): Gender | undefined {
+    return value === 'male' || value === 'female' || value === 'prefer_not_to_say'
+      ? value
+      : undefined;
+  }
+
+  private normalizeSource(value?: string): StudentSource {
+    return value === 'website' || value === 'referral' || value === 'walk_in' || value === 'social_media'
+      ? value
+      : 'admin';
   }
 }

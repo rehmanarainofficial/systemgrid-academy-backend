@@ -1,5 +1,6 @@
 import {
   IsBoolean,
+  IsArray,
   IsIn,
   IsInt,
   IsNumber,
@@ -20,6 +21,7 @@ export class UpdateAdminCourseDto {
   @IsOptional() @IsString() @MinLength(10) @MaxLength(300) shortDescription?: string;
   @IsOptional() @IsString() description?: string;
   @IsOptional() @IsUrl({ require_tld: false }) thumbnail?: string;
+  @IsOptional() @IsArray() @IsString({ each: true }) @MaxLength(40, { each: true }) techStack?: string[];
   @IsOptional() @IsString() categoryId?: string;
   @IsOptional() @IsIn(['beginner', 'intermediate', 'advanced']) level?: 'beginner' | 'intermediate' | 'advanced';
   @IsOptional() @IsInt() @Min(1) duration?: number;

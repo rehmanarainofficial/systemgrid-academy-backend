@@ -50,6 +50,7 @@ Useful commands:
 
 ```bash
 npm run db:logs
+npm run migration:run
 npm run db:down
 npm run seed
 ```
@@ -57,6 +58,19 @@ npm run seed
 Student seed login:
 
 ```bash
+Super Admin:
+email: superadmin@systemgrid.academy
+password: SuperAdmin@123
+
+Admin:
+email: admin@systemgrid.academy
+password: Admin@123
+
+Staff:
+email: staff@systemgrid.academy
+password: Staff@123
+
+Student:
 email: student@systemgrid.academy
 password: Student@123
 ```
@@ -85,18 +99,62 @@ Inside `psql`:
 
 ```sql
 \l
-\c systemgrid_academy
 \dt
-\d users
 SELECT id, name, email, role FROM users;
+SELECT * FROM student_profiles;
+SELECT id, name, slug FROM course_categories;
 SELECT id, title, slug FROM courses;
+SELECT * FROM batches;
 SELECT * FROM enrollments;
 SELECT * FROM attendance;
+SELECT * FROM assignments;
+SELECT * FROM assignment_submissions;
 SELECT * FROM fee_plans;
+SELECT * FROM payments;
+SELECT * FROM invoices;
+SELECT * FROM certificates;
+SELECT * FROM leads;
+SELECT * FROM notifications;
+SELECT * FROM settings;
+SELECT * FROM audit_logs;
 \q
 ```
 
 Keep `DATABASE_SYNCHRONIZE=false` outside local prototyping. Use TypeORM migrations for production schema changes.
+
+## Auth and Admin Operations
+
+Core auth endpoints:
+
+```bash
+POST /api/v1/auth/login
+POST /api/v1/auth/refresh
+POST /api/v1/auth/logout
+POST /api/v1/auth/forgot-password
+POST /api/v1/auth/reset-password
+GET  /api/v1/auth/me
+```
+
+`/auth/login` and `/auth/refresh` set `sg_refresh_token` as an httpOnly cookie and return the short-lived access token in the response for frontend state.
+
+Admin operations added for Phase 1 backend coverage:
+
+```bash
+GET   /api/v1/admin/enrollments
+POST  /api/v1/admin/enrollments
+GET   /api/v1/admin/enrollments/:id
+PATCH /api/v1/admin/enrollments/:id/status
+POST  /api/v1/admin/uploads
+```
+
+Local password reset returns a `resetToken` in non-production mode so the flow can be tested before email integration. Production should send that token through the configured email provider instead of returning it in API responses.
+
+## Production Docs
+
+- Deployment: `docs/DEPLOYMENT.md`
+- Backup strategy: `docs/BACKUP_STRATEGY.md`
+- Production compose file: `docker-compose.prod.yml`
+- Production image: `Dockerfile`
 
 ## Public Phase 2 Endpoints
 

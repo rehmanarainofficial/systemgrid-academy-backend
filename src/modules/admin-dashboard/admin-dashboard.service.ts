@@ -100,12 +100,13 @@ export class AdminDashboardService {
     const enrollmentCounts = upcomingBatches.length
       ? await this.enrollments
           .createQueryBuilder('enrollment')
-          .select('enrollment.batchId', 'batchId')
+          .leftJoin('enrollment.batch', 'batch')
+          .select('batch.id', 'batchId')
           .addSelect('COUNT(*)', 'count')
-          .where('enrollment.batchId IN (:...ids)', {
+          .where('batch.id IN (:...ids)', {
             ids: upcomingBatches.map((batch) => batch.id),
           })
-          .groupBy('enrollment.batchId')
+          .groupBy('batch.id')
           .getRawMany<{ batchId: string; count: string }>()
       : [];
     const batchCounts = Object.fromEntries(

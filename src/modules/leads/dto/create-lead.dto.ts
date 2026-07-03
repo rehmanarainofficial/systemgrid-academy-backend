@@ -23,7 +23,7 @@ export class CreateLeadDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(1000)
+  @MaxLength(2000)
   message?: string;
 
   @IsOptional()
@@ -43,7 +43,7 @@ export class CreateLeadDto {
 
   @IsOptional()
   @IsString()
-  @IsIn(['morning', 'afternoon', 'evening', 'weekend', 'flexible'])
+  @MaxLength(180)
   preferredTiming?: string;
 
   @IsOptional()

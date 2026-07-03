@@ -7,6 +7,7 @@ import {
   Assignment,
   AssignmentSubmission,
   Attendance,
+  AuditLog,
   Batch,
   Certificate,
   ClassSchedule,
@@ -16,11 +17,13 @@ import {
   CourseResource,
   Enrollment,
   FeePlan,
+  Instructor,
   Invoice,
   Lesson,
   Lead,
   Notification,
   Payment,
+  Setting,
   StudentProfile,
   User,
 } from '../entities';
@@ -59,6 +62,9 @@ async function seed() {
   const notifications = dataSource.getRepository(Notification);
   const leads = dataSource.getRepository(Lead);
   const resources = dataSource.getRepository(CourseResource);
+  const instructors = dataSource.getRepository(Instructor);
+  const settings = dataSource.getRepository(Setting);
+  const auditLogs = dataSource.getRepository(AuditLog);
 
   const adminEmail = process.env.SEED_ADMIN_EMAIL ?? 'admin@systemgrid.academy';
   const existingAdmin = await users.findOne({ where: { email: adminEmail } });
@@ -110,7 +116,7 @@ async function seed() {
     );
   }
 
-  const categoryNames = ['Web Development', 'App Development', 'Graphic Designing', 'English for IT'];
+  const categoryNames = ['Web Development', 'App Development', 'Desktop App Development', 'Graphic Designing', 'English for IT', 'AI and Automation', 'Freelancing'];
   for (const [index, name] of categoryNames.entries()) {
     const slug = name.toLowerCase().replaceAll(' ', '-');
     let category = await categories.findOne({ where: { slug } });
@@ -245,6 +251,69 @@ async function seed() {
       }),
     ));
 
+  const additionalCourseSeeds = [
+    {
+      categorySlug: 'desktop-app-development',
+      title: 'Desktop App Development',
+      slug: 'desktop-app-development',
+      shortDescription: 'Build professional desktop applications with modern UI, local data, and APIs.',
+      fee: 36000,
+    },
+    {
+      categorySlug: 'graphic-designing',
+      title: 'Graphic Designing',
+      slug: 'graphic-designing',
+      shortDescription: 'Learn brand design, social media graphics, layout, and portfolio presentation.',
+      fee: 28000,
+    },
+    {
+      categorySlug: 'english-for-it',
+      title: 'English for IT',
+      slug: 'english-for-it',
+      shortDescription: 'Improve technical communication, interview speaking, and workplace English.',
+      fee: 18000,
+    },
+    {
+      categorySlug: 'ai-and-automation',
+      title: 'AI and Automation',
+      slug: 'ai-and-automation',
+      shortDescription: 'Use practical AI tools and automation workflows for real business tasks.',
+      fee: 32000,
+    },
+    {
+      categorySlug: 'freelancing',
+      title: 'Freelancing',
+      slug: 'freelancing',
+      shortDescription: 'Learn profiles, proposals, client communication, pricing, and delivery workflows.',
+      fee: 22000,
+    },
+  ];
+
+  for (const courseSeed of additionalCourseSeeds) {
+    const category = await categories.findOne({ where: { slug: courseSeed.categorySlug } });
+    const existingCourse = await courses.findOne({ where: { slug: courseSeed.slug } });
+    if (!existingCourse) {
+      await courses.save(
+        courses.create({
+          category: category ?? undefined,
+          title: courseSeed.title,
+          slug: courseSeed.slug,
+          shortDescription: courseSeed.shortDescription,
+          description: `${courseSeed.title} training by SystemGrid Academy with practical tasks and portfolio-focused outcomes.`,
+          level: 'beginner',
+          duration: 12,
+          durationUnit: 'weeks',
+          mode: 'hybrid',
+          language: 'mixed',
+          fee: courseSeed.fee,
+          discountFee: courseSeed.fee,
+          isFeatured: ['desktop-app-development', 'ai-and-automation'].includes(courseSeed.slug),
+          isPublished: true,
+        }),
+      );
+    }
+  }
+
   const webModuleSeeds = [
     {
       title: 'HTML, CSS, and Layout Fundamentals',
@@ -306,11 +375,43 @@ async function seed() {
     }
   }
 
+  const instructorSeeds = [
+    {
+      name: 'Ahsan Rehman',
+      email: 'ahsan.instructor@systemgrid.academy',
+      phone: '+923001112233',
+      specialization: 'Full Stack Web Development',
+      bio: 'Instructor record for SystemGrid Academy web and dashboard classes.',
+    },
+    {
+      name: 'Sara Khan',
+      email: 'sara.instructor@systemgrid.academy',
+      phone: '+923004445566',
+      specialization: 'Design and Communication',
+      bio: 'Instructor record for design, portfolio, and communication training.',
+    },
+  ];
+
+  const seededInstructors: Instructor[] = [];
+  for (const instructorSeed of instructorSeeds) {
+    const existingInstructor = await instructors.findOne({ where: { email: instructorSeed.email } });
+    seededInstructors.push(
+      existingInstructor ??
+        (await instructors.save(
+          instructors.create({
+            ...instructorSeed,
+            isActive: true,
+          }),
+        )),
+    );
+  }
+
   let batch = await batches.findOne({ where: { code: 'WEB-2026-EVE' } });
   if (!batch) {
     batch = await batches.save(
       batches.create({
         course: webCourse,
+        instructor: seededInstructors[0],
         title: 'Evening Batch',
         code: 'WEB-2026-EVE',
         startDate: '2026-07-05',
@@ -323,6 +424,9 @@ async function seed() {
         status: 'active',
       }),
     );
+  } else if (!batch.instructor && seededInstructors[0]) {
+    batch.instructor = seededInstructors[0];
+    await batches.save(batch);
   }
 
   let enrollment = await enrollments.findOne({
@@ -671,7 +775,7 @@ async function seed() {
     where: { enrollment: { id: enrollment.id } },
     relations: { enrollment: true },
   });
-  await feePlans.save(
+  const mainFeePlan = await feePlans.save(
     existingFeePlan
       ? feePlans.merge(existingFeePlan, {
           totalAmount: 42000,
@@ -727,6 +831,7 @@ async function seed() {
         payments.create({
           student: studentProfile,
           enrollment,
+          feePlan: mainFeePlan,
           amount: paymentSeed.amount,
           method: paymentSeed.method,
           paymentDate: paymentSeed.paymentDate,
@@ -848,6 +953,61 @@ async function seed() {
         title: 'Course Roadmap PDF',
         type: 'pdf',
         url: '/resources/web-roadmap.pdf',
+      }),
+    );
+  }
+
+  const settingSeeds = [
+    {
+      key: 'branding',
+      value: {
+        academyName: 'SystemGrid Academy',
+        tagline: 'Practical IT Training by SystemGrid',
+        logoUrl: '/logo.svg',
+      },
+    },
+    {
+      key: 'contact',
+      value: {
+        supportEmail: 'support@thesystemgrid.com',
+        academyEmail: 'academy@thesystemgrid.com',
+        city: 'Karachi',
+        website: 'https://academy.thesystemgrid.com',
+      },
+    },
+    {
+      key: 'theme',
+      value: {
+        defaultTheme: 'system',
+        primaryColor: '#007AFF',
+        accentColor: '#0EA5E9',
+      },
+    },
+    {
+      key: 'whatsapp',
+      value: {
+        number: '',
+        enabled: true,
+        message: 'Assalam o Alaikum, I want to know more about SystemGrid Academy.',
+      },
+    },
+  ];
+
+  for (const settingSeed of settingSeeds) {
+    const existingSetting = await settings.findOne({ where: { key: settingSeed.key } });
+    await settings.save(existingSetting ? settings.merge(existingSetting, { value: settingSeed.value }) : settings.create(settingSeed));
+  }
+
+  const superAdmin = await users.findOne({ where: { email: 'superadmin@systemgrid.academy' } });
+  const existingAudit = await auditLogs.findOne({ where: { module: 'seed', action: 'seed_database', recordId: 'systemgrid-academy' } });
+  if (!existingAudit) {
+    await auditLogs.save(
+      auditLogs.create({
+        user: superAdmin ?? undefined,
+        action: 'seed_database',
+        module: 'seed',
+        recordId: 'systemgrid-academy',
+        metadata: { courses: additionalCourseSeeds.length + 2, categories: categoryNames.length },
       }),
     );
   }

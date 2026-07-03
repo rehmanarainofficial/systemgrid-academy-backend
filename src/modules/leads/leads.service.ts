@@ -14,7 +14,9 @@ import {
   Batch,
   Course,
   Enrollment,
+  LeadSource,
   Lead,
+  StudentSource,
   StudentProfile,
   User,
 } from '../../database/entities';
@@ -48,7 +50,7 @@ export class LeadsService {
       preferredMode,
       preferredTiming,
       courseInterest: selectedCourse ?? leadData.courseInterest,
-      source: leadData.source ?? 'website',
+      source: this.normalizeLeadSource(leadData.source),
       status: 'new',
     });
 
@@ -76,6 +78,10 @@ export class LeadsService {
     }
     if (query.status && query.status !== 'all') {
       builder.andWhere('lead.status = :status', { status: query.status });
+    } else {
+      builder.andWhere('lead.status != :convertedStatus', {
+        convertedStatus: 'converted',
+      });
     }
     if (query.source && query.source !== 'all') {
       builder.andWhere('lead.source = :source', { source: query.source });
@@ -100,7 +106,10 @@ export class LeadsService {
     const counts = Object.fromEntries(
       grouped.map((item) => [item.status, Number(item.count)]),
     );
-    const total = await this.leadsRepository.count();
+    const total = await this.leadsRepository
+      .createQueryBuilder('lead')
+      .where('lead.status != :convertedStatus', { convertedStatus: 'converted' })
+      .getCount();
 
     return {
       summary: {
@@ -139,6 +148,11 @@ export class LeadsService {
       });
       if (!assignee) throw new BadRequestException('Assigned user not found');
       lead.assignedTo = assignee;
+    }
+    if (dto.status === 'converted') {
+      throw new BadRequestException(
+        'Use the convert to student action to convert a lead',
+      );
     }
     if (dto.status) lead.status = dto.status;
     if (dto.notes !== undefined) lead.notes = dto.notes.trim() || undefined;
@@ -196,7 +210,7 @@ export class LeadsService {
           user,
           city: lead.city,
           educationLevel: lead.studentLevel,
-          source: lead.source,
+          source: this.toStudentSource(lead.source),
           status: 'active',
         }),
       );
@@ -278,6 +292,25 @@ export class LeadsService {
       createdAt: lead.createdAt,
       updatedAt: lead.updatedAt,
     };
+  }
+
+  private normalizeLeadSource(source?: string): LeadSource {
+    const allowed: LeadSource[] = [
+      'website',
+      'admissions_page',
+      'free_demo_class_page',
+      'contact_page',
+      'course_detail_page',
+      'referral',
+      'walk_in',
+      'social_media',
+    ];
+    return allowed.includes(source as LeadSource) ? (source as LeadSource) : 'website';
+  }
+
+  private toStudentSource(source?: string): StudentSource {
+    if (source === 'referral' || source === 'walk_in' || source === 'social_media') return source;
+    return 'website';
   }
 
   private async logAction(

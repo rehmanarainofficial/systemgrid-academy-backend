@@ -18,6 +18,7 @@ import {
   CourseResource,
   Enrollment,
   FeePlan,
+  Gender,
   Invoice,
   Lesson,
   Notification,
@@ -674,7 +675,7 @@ export class StudentPortalService {
     student.city = dto.city?.trim() || undefined;
     student.address = dto.address?.trim() || undefined;
     student.dateOfBirth = dto.dateOfBirth || undefined;
-    student.gender = dto.gender || undefined;
+    student.gender = this.normalizeGender(dto.gender);
     student.educationLevel = dto.educationLevel || undefined;
     await this.studentsRepository.save(student);
 
@@ -1277,5 +1278,11 @@ export class StudentPortalService {
       hybrid: 'Online + Office Support',
     };
     return labels[mode] ?? mode;
+  }
+
+  private normalizeGender(value?: string): Gender | undefined {
+    return value === 'male' || value === 'female' || value === 'prefer_not_to_say'
+      ? value
+      : undefined;
   }
 }

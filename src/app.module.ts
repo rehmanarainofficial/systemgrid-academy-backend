@@ -18,6 +18,7 @@ import { FeesModule } from './modules/fees/fees.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
 import { CertificatesModule } from './modules/certificates/certificates.module';
+import { InstructorsModule } from './modules/instructors/instructors.module';
 import { LeadsModule } from './modules/leads/leads.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
@@ -46,6 +47,7 @@ import { AdminDashboardModule } from './modules/admin-dashboard/admin-dashboard.
     PaymentsModule,
     InvoicesModule,
     CertificatesModule,
+    InstructorsModule,
     LeadsModule,
     NotificationsModule,
     UploadsModule,

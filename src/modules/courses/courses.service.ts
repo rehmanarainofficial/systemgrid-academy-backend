@@ -114,8 +114,7 @@ export class CoursesService {
   }
 
   async createAdminCourse(dto: CreateAdminCourseDto, actorId: string) {
-    const slug = this.normalizeSlug(dto.slug);
-    await this.ensureSlugAvailable(slug);
+    const slug = await this.createUniqueSlug(dto.slug || dto.title);
     const category = await this.resolveCategory(dto.categoryId);
     const course = await this.dataSource.transaction(async (manager) => {
       const created = await manager.save(manager.create(Course, {
@@ -124,6 +123,7 @@ export class CoursesService {
         shortDescription: dto.shortDescription.trim(),
         description: dto.description?.trim() || undefined,
         thumbnail: dto.thumbnail?.trim() || undefined,
+        techStack: this.cleanTechStack(dto.techStack),
         category,
         level: dto.level,
         duration: dto.duration,
@@ -154,8 +154,7 @@ export class CoursesService {
     if (!course) throw new NotFoundException('Course not found');
     if (dto.slug) {
       const slug = this.normalizeSlug(dto.slug);
-      await this.ensureSlugAvailable(slug, id);
-      course.slug = slug;
+      course.slug = await this.createUniqueSlug(slug, id);
     }
     if (dto.categoryId !== undefined) course.category = await this.resolveCategory(dto.categoryId);
     const fields: Array<keyof UpdateAdminCourseDto> = [
@@ -165,6 +164,7 @@ export class CoursesService {
     for (const field of fields) {
       if (dto[field] !== undefined) (course as unknown as Record<string, unknown>)[field] = dto[field];
     }
+    if (dto.techStack !== undefined) course.techStack = this.cleanTechStack(dto.techStack);
     await this.coursesRepository.save(course);
     if (dto.modules) await this.syncModules(course, dto.modules);
     await this.logAction(actorId, 'update', id, { fields: Object.keys(dto) });
@@ -214,6 +214,7 @@ export class CoursesService {
       shortDescription: course.shortDescription,
       description: course.description ?? '',
       thumbnail: course.thumbnail ?? '',
+      techStack: course.techStack ?? [],
       category: course.category ? { id: course.category.id, name: course.category.name, slug: course.category.slug } : null,
       level: course.level,
       duration: course.duration,
@@ -248,9 +249,29 @@ export class CoursesService {
     return slug;
   }
 
-  private async ensureSlugAvailable(slug: string, excludedId?: string) {
+  private async createUniqueSlug(value: string, excludedId?: string) {
+    const base = this.normalizeSlug(value);
+    let candidate = base;
+    let suffix = 2;
+    while (await this.slugExists(candidate, excludedId)) {
+      candidate = `${base}-${suffix}`;
+      suffix += 1;
+    }
+    return candidate;
+  }
+
+  private async slugExists(slug: string, excludedId?: string) {
     const existing = await this.coursesRepository.findOne({ where: { slug } });
-    if (existing && existing.id !== excludedId) throw new ConflictException('A course with this slug already exists');
+    return Boolean(existing && existing.id !== excludedId);
+  }
+
+  private cleanTechStack(techStack?: string[]) {
+    if (!techStack) return undefined;
+    const values = techStack
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .slice(0, 12);
+    return values.length ? Array.from(new Set(values)) : undefined;
   }
 
   private async resolveCategory(categoryId?: string) {
