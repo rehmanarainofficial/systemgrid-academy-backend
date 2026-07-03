@@ -5,6 +5,7 @@ import * as bcrypt from 'bcryptjs';
 import type { Response } from 'express';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { UsersService } from '../users/users.service';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 
@@ -67,6 +68,15 @@ export class AuthService {
     response.clearCookie('sg_access_token');
     response.clearCookie('sg_user_role');
     return { message: 'Logged out successfully' };
+  }
+
+  async forgotPassword(dto: ForgotPasswordDto) {
+    await this.usersService.findByEmail(dto.email);
+
+    return {
+      message:
+        'If an account exists for this email, password reset instructions will be sent shortly.',
+    };
   }
 
   private async signTokens(userId: string, email: string, role: UserRole) {

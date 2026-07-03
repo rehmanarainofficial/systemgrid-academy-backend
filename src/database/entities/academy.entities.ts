@@ -357,6 +357,15 @@ export class Batch {
   @Column({ default: 25 })
   capacity: number;
 
+  @Column({ nullable: true })
+  meetingUrl?: string;
+
+  @Column({ nullable: true })
+  location?: string;
+
+  @Column({ type: 'text', nullable: true })
+  enrollmentNote?: string;
+
   @Column({ default: 'upcoming' })
   status: BatchStatus;
 
