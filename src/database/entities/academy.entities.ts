@@ -313,6 +313,21 @@ export class StudentProfile {
   @Column({ name: 'city', nullable: true })
   city?: string;
 
+  @Column({ name: 'course_interest', nullable: true })
+  courseInterest?: string;
+
+  @Column({ name: 'preferred_mode', nullable: true })
+  preferredMode?: string;
+
+  @Column({ name: 'preferred_timing', nullable: true })
+  preferredTiming?: string;
+
+  @Column({ name: 'preferred_days', nullable: true })
+  preferredDays?: string;
+
+  @Column({ name: 'admission_message', type: 'text', nullable: true })
+  admissionMessage?: string;
+
   @Column({ name: 'source', type: 'enum', enum: StudentSourceEnum, default: StudentSourceEnum.Website })
   source: StudentSource;
 
@@ -1129,11 +1144,29 @@ export class Lead {
   @Column({ name: 'city', nullable: true })
   city?: string;
 
+  @Column({ name: 'guardian_name', nullable: true })
+  guardianName?: string;
+
+  @Column({ name: 'guardian_phone', nullable: true })
+  guardianPhone?: string;
+
+  @Column({ name: 'date_of_birth', type: 'date', nullable: true })
+  dateOfBirth?: string;
+
+  @Column({ name: 'gender', type: 'enum', enum: GenderEnum, nullable: true })
+  gender?: Gender;
+
+  @Column({ name: 'address', nullable: true })
+  address?: string;
+
   @Column({ name: 'preferred_mode', nullable: true })
   preferredMode?: string;
 
   @Column({ name: 'preferred_timing', nullable: true })
   preferredTiming?: string;
+
+  @Column({ name: 'preferred_days', nullable: true })
+  preferredDays?: string;
 
   @Column({ name: 'student_level', nullable: true })
   studentLevel?: string;

@@ -14,6 +14,7 @@ import {
   Batch,
   Course,
   Enrollment,
+  Gender,
   LeadSource,
   Lead,
   StudentSource,
@@ -205,11 +206,25 @@ export class LeadsService {
           isActive: true,
         }),
       );
+      const legacyDetails = this.extractLegacyAdmissionDetails(lead.message);
+      const [preferredTiming, legacyPreferredDays] = (lead.preferredTiming ?? '')
+        .split('|')
+        .map((value) => value.trim());
       const profile = await manager.save(
         manager.create(StudentProfile, {
           user,
           city: lead.city,
+          guardianName: lead.guardianName ?? legacyDetails.guardianName,
+          guardianPhone: lead.guardianPhone ?? legacyDetails.guardianPhone,
+          dateOfBirth: lead.dateOfBirth ?? legacyDetails.dateOfBirth,
+          gender: lead.gender ?? legacyDetails.gender,
+          address: lead.address ?? legacyDetails.address,
           educationLevel: lead.studentLevel,
+          courseInterest: lead.courseInterest,
+          preferredMode: lead.preferredMode,
+          preferredTiming: preferredTiming || undefined,
+          preferredDays: lead.preferredDays ?? legacyPreferredDays,
+          admissionMessage: this.extractApplicantMessage(lead.message),
           source: this.toStudentSource(lead.source),
           status: 'active',
         }),
@@ -257,7 +272,7 @@ export class LeadsService {
       );
 
       return {
-        message: 'Lead converted to student successfully',
+        message: 'Admission accepted and student account created successfully',
         student: {
           id: profile.id,
           userId: user.id,
@@ -278,9 +293,15 @@ export class LeadsService {
       email: lead.email ?? '',
       phone: lead.phone,
       city: lead.city ?? '',
+      guardianName: lead.guardianName ?? '',
+      guardianPhone: lead.guardianPhone ?? '',
+      dateOfBirth: lead.dateOfBirth ?? '',
+      gender: lead.gender ?? '',
+      address: lead.address ?? '',
       courseInterest: lead.courseInterest ?? '',
       preferredMode: lead.preferredMode ?? '',
       preferredTiming: lead.preferredTiming ?? '',
+      preferredDays: lead.preferredDays ?? '',
       studentLevel: lead.studentLevel ?? '',
       source: lead.source,
       status: lead.status,
@@ -311,6 +332,38 @@ export class LeadsService {
   private toStudentSource(source?: string): StudentSource {
     if (source === 'referral' || source === 'walk_in' || source === 'social_media') return source;
     return 'website';
+  }
+
+  private extractLegacyAdmissionDetails(message?: string): {
+    guardianName?: string;
+    guardianPhone?: string;
+    dateOfBirth?: string;
+    gender?: Gender;
+    address?: string;
+  } {
+    if (!message?.includes('Admission details:')) return {};
+
+    const valueFor = (label: string) =>
+      message.match(new RegExp(`^${label}:\\s*(.+)$`, 'im'))?.[1]?.trim();
+    const genderValue = valueFor('Gender')?.toLowerCase().replaceAll(' ', '_');
+    const gender = ['male', 'female', 'prefer_not_to_say'].includes(
+      genderValue ?? '',
+    )
+      ? (genderValue as Gender)
+      : undefined;
+
+    return {
+      guardianName: valueFor('Guardian name'),
+      guardianPhone: valueFor('Guardian phone'),
+      dateOfBirth: valueFor('Date of birth'),
+      gender,
+      address: valueFor('Address'),
+    };
+  }
+
+  private extractApplicantMessage(message?: string) {
+    const applicantMessage = message?.split(/\n\nAdmission details:/i)[0]?.trim();
+    return applicantMessage || undefined;
   }
 
   private async logAction(

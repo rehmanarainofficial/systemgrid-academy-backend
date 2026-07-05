@@ -1,4 +1,12 @@
-import { IsEmail, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  IsDateString,
+  IsEmail,
+  IsIn,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
 export class CreateLeadDto {
   @IsString()
@@ -33,6 +41,31 @@ export class CreateLeadDto {
 
   @IsOptional()
   @IsString()
+  @MinLength(2)
+  @MaxLength(120)
+  guardianName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(7)
+  @MaxLength(30)
+  guardianPhone?: string;
+
+  @IsOptional()
+  @IsDateString()
+  dateOfBirth?: string;
+
+  @IsOptional()
+  @IsIn(['male', 'female', 'prefer_not_to_say'])
+  gender?: 'male' | 'female' | 'prefer_not_to_say';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  address?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(120)
   educationLevel?: string;
 
@@ -45,6 +78,11 @@ export class CreateLeadDto {
   @IsString()
   @MaxLength(180)
   preferredTiming?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  preferredDays?: string;
 
   @IsOptional()
   @IsString()

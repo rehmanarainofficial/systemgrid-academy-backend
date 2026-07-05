@@ -18,7 +18,6 @@ import {
   CourseResource,
   Enrollment,
   FeePlan,
-  Gender,
   Invoice,
   Lesson,
   Notification,
@@ -647,6 +646,11 @@ export class StudentPortalService {
         dateOfBirth: student.dateOfBirth ?? '',
         gender: student.gender ?? '',
         educationLevel: student.educationLevel ?? '',
+        courseInterest: student.courseInterest ?? '',
+        preferredMode: student.preferredMode ?? '',
+        preferredTiming: student.preferredTiming ?? '',
+        preferredDays: student.preferredDays ?? '',
+        admissionMessage: student.admissionMessage ?? '',
         source: student.source ?? 'website',
       },
       stats: {
@@ -658,33 +662,13 @@ export class StudentPortalService {
     };
   }
 
-  async updateProfile(userId: string, dto: UpdateStudentProfileDto) {
-    const student = await this.getStudentProfile(userId);
-    const user = await this.usersRepository.findOne({ where: { id: userId } });
-
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
-    user.name = dto.name.trim();
-    user.phone = dto.phone?.trim() || undefined;
-    await this.usersRepository.save(user);
-
-    student.guardianName = dto.guardianName?.trim() || undefined;
-    student.guardianPhone = dto.guardianPhone?.trim() || undefined;
-    student.city = dto.city?.trim() || undefined;
-    student.address = dto.address?.trim() || undefined;
-    student.dateOfBirth = dto.dateOfBirth || undefined;
-    student.gender = this.normalizeGender(dto.gender);
-    student.educationLevel = dto.educationLevel || undefined;
-    await this.studentsRepository.save(student);
-
-    const updated = await this.getProfile(userId);
-    return {
-      message: 'Profile updated successfully',
-      user: updated.user,
-      profile: updated.profile,
-    };
+  async updateProfile(
+    _userId: string,
+    _dto: UpdateStudentProfileDto,
+  ): Promise<never> {
+    throw new ForbiddenException(
+      'Admission profile details are read-only. Contact academy support to request a correction.',
+    );
   }
 
   async changePassword(userId: string, dto: ChangeStudentPasswordDto) {
@@ -1280,9 +1264,4 @@ export class StudentPortalService {
     return labels[mode] ?? mode;
   }
 
-  private normalizeGender(value?: string): Gender | undefined {
-    return value === 'male' || value === 'female' || value === 'prefer_not_to_say'
-      ? value
-      : undefined;
-  }
 }

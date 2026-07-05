@@ -7,8 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'crypto';
-import { mkdir, writeFile } from 'fs/promises';
-import { extname, join } from 'path';
+import { extname } from 'path';
 import { Repository } from 'typeorm';
 import { AuditLog, User } from '../../database/entities';
 import { UploadResourceDto } from './dto/upload-resource.dto';
@@ -98,28 +97,14 @@ export class UploadsService {
     return this.save(file, { module: folder, type: 'image' }, actorId);
   }
 
+  // All uploads go to AWS S3. Local disk storage is intentionally not
+  // supported so no files are written to (or served from) the server.
   private async persist(
     file: UploadedFileData,
     folder: string,
     fileName: string,
   ) {
-    const storageDriver = (
-      this.configService.get<string>('STORAGE_DRIVER') ?? 'local'
-    ).toLowerCase();
-    if (storageDriver === 's3') {
-      return this.persistToS3(file, folder, fileName);
-    }
-
-    const uploadRoot =
-      this.configService.get<string>('UPLOAD_DIR') ?? 'uploads';
-    const directory = join(process.cwd(), uploadRoot, folder);
-    await mkdir(directory, { recursive: true });
-    await writeFile(join(directory, fileName), file.buffer);
-    const publicBackendUrl = (
-      this.configService.get<string>('BACKEND_PUBLIC_URL') ??
-      'http://localhost:5000'
-    ).replace(/\/$/, '');
-    return `${publicBackendUrl}/uploads/${folder}/${fileName}`;
+    return this.persistToS3(file, folder, fileName);
   }
 
   private async persistToS3(
@@ -154,7 +139,19 @@ export class UploadsService {
 
   private getS3Client(region: string) {
     if (!this.s3Client) {
-      this.s3Client = new S3Client({ region, maxAttempts: 3 });
+      // Prefer explicit credentials from configuration. Fall back to the AWS
+      // default provider chain (e.g. an IAM role) when they are not set.
+      const accessKeyId = this.configService.get<string>('AWS_ACCESS_KEY_ID');
+      const secretAccessKey = this.configService.get<string>(
+        'AWS_SECRET_ACCESS_KEY',
+      );
+      this.s3Client = new S3Client({
+        region,
+        maxAttempts: 3,
+        ...(accessKeyId && secretAccessKey
+          ? { credentials: { accessKeyId, secretAccessKey } }
+          : {}),
+      });
     }
     return this.s3Client;
   }
