@@ -22,8 +22,12 @@ import {
   Lesson,
   Notification,
   Payment,
+  ReferralCode,
+  ReferralRedemption,
   StudentProfile,
+  StudentWallet,
   User,
+  WalletLedger,
 } from '../../database/entities';
 import { ChangeStudentPasswordDto } from './dto/change-student-password.dto';
 import { StudentNotificationsQueryDto } from './dto/student-notifications-query.dto';
@@ -73,6 +77,14 @@ export class StudentPortalService {
     private readonly notificationsRepository: Repository<Notification>,
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
+    @InjectRepository(StudentWallet)
+    private readonly walletsRepository: Repository<StudentWallet>,
+    @InjectRepository(WalletLedger)
+    private readonly walletLedgerRepository: Repository<WalletLedger>,
+    @InjectRepository(ReferralCode)
+    private readonly referralCodesRepository: Repository<ReferralCode>,
+    @InjectRepository(ReferralRedemption)
+    private readonly referralRedemptionsRepository: Repository<ReferralRedemption>,
   ) {}
 
   async getDashboard(userId: string) {
@@ -394,6 +406,9 @@ export class StudentPortalService {
         batchTitle: plan.enrollment.batch?.title ?? 'Self-paced',
         totalAmount: Number(plan.totalAmount),
         discountAmount: Number(plan.discountAmount),
+        referralCouponDiscountAmount: Number(plan.referralCouponDiscountAmount ?? 0),
+        scholarshipDiscountAmount: Number(plan.scholarshipDiscountAmount ?? 0),
+        walletCreditUsed: Number(plan.walletCreditUsed ?? 0),
         payableAmount: Number(plan.payableAmount),
         paidAmount: Number(plan.paidAmount),
         pendingAmount: Number(plan.pendingAmount),
@@ -420,9 +435,75 @@ export class StudentPortalService {
         invoiceNumber: invoice.invoiceNumber,
         courseTitle: invoice.payment.enrollment.course.title,
         amount: Number(invoice.amount),
+        grossAmount: Number(invoice.grossAmount ?? invoice.amount),
+        planDiscountAmount: Number(invoice.planDiscountAmount ?? 0),
+        referralCouponDiscountAmount: Number(invoice.referralCouponDiscountAmount ?? 0),
+        scholarshipDiscountAmount: Number(invoice.scholarshipDiscountAmount ?? 0),
+        walletCreditUsed: Number(invoice.walletCreditUsed ?? 0),
+        payableAmount: Number(invoice.payableAmount ?? invoice.amount),
+        paidAmount: Number(invoice.paidAmount ?? 0),
+        pendingAmount: Number(invoice.pendingAmount ?? 0),
         issuedAt: invoice.issuedAt.toISOString(),
         status: invoice.status,
         pdfUrl: invoice.pdfUrl ?? '',
+      })),
+    };
+  }
+
+  async getWallet(userId: string) {
+    const student = await this.getStudentProfile(userId);
+    const wallet = await this.walletsRepository.findOne({ where: { student: { id: student.id } } });
+    const ledger = await this.walletLedgerRepository.find({
+      where: { student: { id: student.id } },
+      order: { createdAt: 'DESC' },
+      take: 50,
+    });
+    return {
+      summary: {
+        availableBalance: Number(wallet?.balance ?? 0),
+        totalEarned: Number(wallet?.totalEarned ?? 0),
+        totalUsed: Number(wallet?.totalUsed ?? 0),
+      },
+      ledger: ledger.map((item) => ({
+        id: item.id,
+        type: item.type,
+        source: item.source,
+        amount: Number(item.amount),
+        balanceAfter: Number(item.balanceAfter),
+        referenceId: item.referenceId ?? '',
+        description: item.description ?? '',
+        createdAt: item.createdAt,
+      })),
+    };
+  }
+
+  async getReferrals(userId: string) {
+    const student = await this.getStudentProfile(userId);
+    const referralCode = await this.referralCodesRepository.findOne({
+      where: { student: { id: student.id }, isActive: true },
+      order: { createdAt: 'DESC' },
+    });
+    const redemptions = await this.referralRedemptionsRepository.find({
+      where: { referrerStudent: { id: student.id } },
+      relations: { referredApplication: true, referredStudent: { user: true } },
+      order: { createdAt: 'DESC' },
+      take: 50,
+    });
+    const wallet = await this.walletsRepository.findOne({ where: { student: { id: student.id } } });
+    return {
+      code: referralCode?.code ?? '',
+      availableWalletBalance: Number(wallet?.balance ?? 0),
+      totalReferrals: redemptions.length,
+      pendingReferrals: redemptions.filter((item) => item.status !== 'verified').length,
+      verifiedReferrals: redemptions.filter((item) => item.status === 'verified').length,
+      totalCreditEarned: Number(referralCode?.totalCreditEarned ?? 0),
+      history: redemptions.map((item) => ({
+        id: item.id,
+        friendName: item.referredStudent?.user?.name ?? item.referredApplication.name ?? item.referredApplication.email,
+        status: item.status,
+        creditAmount: Number(item.referrerCreditAmount),
+        createdAt: item.createdAt,
+        verifiedAt: item.verifiedAt ?? null,
       })),
     };
   }

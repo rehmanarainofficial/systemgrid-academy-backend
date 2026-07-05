@@ -145,6 +145,33 @@ export enum PaymentStatusEnum {
 
 export type PaymentStatus = 'pending' | 'verified' | 'rejected';
 
+export type PricingPlanType = 'monthly' | 'quarterly' | 'full_course';
+
+export type AdmissionApplicationStatus =
+  | 'submitted'
+  | 'email_pending'
+  | 'verified'
+  | 'payment_pending'
+  | 'payment_failed'
+  | 'payment_verified'
+  | 'enrolled'
+  | 'rejected'
+  | 'cancelled'
+  | 'waitlisted';
+
+export type PaymentIntentStatus = 'created' | 'pending' | 'verified' | 'failed' | 'cancelled';
+export type PaymentGateway = 'jazzcash' | 'easypaisa';
+export type ReferralRedemptionStatus = 'applied' | 'payment_pending' | 'verified' | 'rejected' | 'cancelled';
+export type WalletLedgerType = 'credit' | 'debit';
+export type WalletSource = 'referral_reward' | 'manual_adjustment' | 'invoice_credit_usage' | 'scholarship_adjustment';
+export type ScholarshipStatus = 'passed' | 'failed' | 'applied' | 'expired';
+export type OfferType =
+  | 'quarterly_discount'
+  | 'full_course_discount'
+  | 'scholarship_discount'
+  | 'referral_new_student_discount'
+  | 'referral_reward';
+
 export enum InvoiceStatusEnum {
   Paid = 'paid',
   Unpaid = 'unpaid',
@@ -198,9 +225,22 @@ export enum NotificationTypeEnum {
   Assignment = 'assignment',
   Certificate = 'certificate',
   Payment = 'payment',
+  Referral = 'referral',
+  Wallet = 'wallet',
+  Scholarship = 'scholarship',
 }
 
-export type NotificationType = 'system' | 'info' | 'fee' | 'class' | 'assignment' | 'certificate' | 'payment';
+export type NotificationType =
+  | 'system'
+  | 'info'
+  | 'fee'
+  | 'class'
+  | 'assignment'
+  | 'certificate'
+  | 'payment'
+  | 'referral'
+  | 'wallet'
+  | 'scholarship';
 
 export enum CourseResourceTypeEnum {
   Pdf = 'pdf',
@@ -268,6 +308,9 @@ export class User {
 
   @OneToMany(() => Payment, (payment) => payment.receivedBy)
   receivedPayments: Relation<Payment[]>;
+
+  @OneToMany(() => AdmissionApplication, (application) => application.assignedTo)
+  assignedAdmissionApplications: Relation<AdmissionApplication[]>;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
@@ -349,6 +392,15 @@ export class StudentProfile {
   @OneToMany(() => Certificate, (certificate) => certificate.student)
   certificates: Relation<Certificate[]>;
 
+  @OneToOne(() => StudentWallet, (wallet) => wallet.student)
+  wallet?: Relation<StudentWallet>;
+
+  @OneToMany(() => ReferralCode, (referralCode) => referralCode.student)
+  referralCodes: Relation<ReferralCode[]>;
+
+  @OneToMany(() => WalletLedger, (ledger) => ledger.student)
+  walletLedger: Relation<WalletLedger[]>;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
@@ -363,8 +415,8 @@ export class CourseCategory {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ name: 'name' })
-  name: string;
+  @Column({ name: 'name', nullable: true })
+  name?: string;
 
   @Index('uq_course_categories_slug', { unique: true })
   @Column({ name: 'slug', unique: true })
@@ -445,6 +497,9 @@ export class Course {
   @Column({ name: 'fee', type: 'numeric', precision: 12, scale: 2, default: 0 })
   fee: number;
 
+  @Column({ name: 'monthly_fee', type: 'numeric', precision: 12, scale: 2, default: 5000 })
+  monthlyFee: number;
+
   @Column({ name: 'discount_fee', type: 'numeric', precision: 12, scale: 2, nullable: true })
   discountFee?: number;
 
@@ -471,6 +526,9 @@ export class Course {
 
   @OneToMany(() => Certificate, (certificate) => certificate.course)
   certificates: Relation<Certificate[]>;
+
+  @OneToMany(() => AdmissionApplication, (application) => application.course)
+  admissionApplications: Relation<AdmissionApplication[]>;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
@@ -925,11 +983,40 @@ export class FeePlan {
   @JoinColumn({ name: 'enrollment_id' })
   enrollment: Relation<Enrollment>;
 
+  @ManyToOne(() => StudentProfile, { nullable: true, onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'student_id' })
+  student?: Relation<StudentProfile>;
+
+  @ManyToOne(() => Course, { nullable: true, onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'course_id' })
+  course?: Relation<Course>;
+
+  @Column({ name: 'pricing_type', nullable: true })
+  pricingType?: PricingPlanType;
+
+  @Column({ name: 'course_duration_months', type: 'integer', default: 1 })
+  courseDurationMonths: number;
+
+  @Column({ name: 'base_monthly_fee', type: 'numeric', precision: 12, scale: 2, default: 5000 })
+  baseMonthlyFee: number;
+
   @Column({ name: 'total_amount', type: 'numeric', precision: 12, scale: 2 })
   totalAmount: number;
 
   @Column({ name: 'discount_amount', type: 'numeric', precision: 12, scale: 2, default: 0 })
   discountAmount: number;
+
+  @Column({ name: 'discount_percentage', type: 'numeric', precision: 5, scale: 2, default: 0 })
+  discountPercentage: number;
+
+  @Column({ name: 'referral_coupon_discount_amount', type: 'numeric', precision: 12, scale: 2, default: 0 })
+  referralCouponDiscountAmount: number;
+
+  @Column({ name: 'scholarship_discount_amount', type: 'numeric', precision: 12, scale: 2, default: 0 })
+  scholarshipDiscountAmount: number;
+
+  @Column({ name: 'wallet_credit_used', type: 'numeric', precision: 12, scale: 2, default: 0 })
+  walletCreditUsed: number;
 
   @Column({ name: 'payable_amount', type: 'numeric', precision: 12, scale: 2 })
   payableAmount: number;
@@ -943,8 +1030,14 @@ export class FeePlan {
   @Column({ name: 'installment_type', type: 'enum', enum: InstallmentTypeEnum, default: InstallmentTypeEnum.Full })
   installmentType: InstallmentType;
 
+  @Column({ name: 'billing_cycle', nullable: true })
+  billingCycle?: PricingPlanType;
+
   @Column({ name: 'due_date', type: 'date', nullable: true })
   dueDate?: string;
+
+  @Column({ name: 'next_due_date', type: 'date', nullable: true })
+  nextDueDate?: string;
 
   @Column({ name: 'status', type: 'enum', enum: FeeStatusEnum, default: FeeStatusEnum.Unpaid })
   status: FeeStatus;
@@ -982,14 +1075,28 @@ export class Payment {
   @JoinColumn({ name: 'fee_plan_id' })
   feePlan?: Relation<FeePlan>;
 
+  @ManyToOne(() => Invoice, (invoice) => invoice.payments, { nullable: true, onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'invoice_id' })
+  invoiceRecord?: Relation<Invoice>;
+
+  @OneToOne(() => PaymentIntent, (intent) => intent.payment, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'payment_intent_id' })
+  paymentIntent?: Relation<PaymentIntent>;
+
   @Column({ name: 'amount', type: 'numeric', precision: 12, scale: 2 })
   amount: number;
 
   @Column({ name: 'method', type: 'enum', enum: PaymentMethodEnum, default: PaymentMethodEnum.Cash })
   method: PaymentMethod;
 
+  @Column({ name: 'gateway', nullable: true })
+  gateway?: PaymentGateway;
+
   @Column({ name: 'transaction_id', nullable: true })
   transactionId?: string;
+
+  @Column({ name: 'gateway_reference', nullable: true })
+  gatewayReference?: string;
 
   @Column({ name: 'payment_date', type: 'date' })
   paymentDate: string;
@@ -1003,6 +1110,9 @@ export class Payment {
 
   @Column({ name: 'notes', type: 'text', nullable: true })
   notes?: string;
+
+  @Column({ name: 'raw_gateway_response', type: 'jsonb', nullable: true })
+  rawGatewayResponse?: Record<string, unknown>;
 
   @OneToOne(() => Invoice, (invoice) => invoice.payment)
   invoice?: Relation<Invoice>;
@@ -1044,13 +1154,34 @@ export class CourseResource {
 
 @Entity('invoices')
 @Index('idx_invoices_payment_id', ['payment'])
+@Index('idx_invoices_admission_application_id', ['admissionApplication'])
+@Check('chk_invoices_amounts_non_negative', 'amount >= 0 AND gross_amount >= 0 AND payable_amount >= 0 AND paid_amount >= 0 AND pending_amount >= 0')
 export class Invoice {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @OneToOne(() => Payment, (payment) => payment.invoice, { onDelete: 'RESTRICT' })
+  @OneToOne(() => Payment, (payment) => payment.invoice, { nullable: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'payment_id' })
   payment: Relation<Payment>;
+
+  @OneToMany(() => Payment, (payment) => payment.invoiceRecord)
+  payments: Relation<Payment[]>;
+
+  @ManyToOne(() => AdmissionApplication, (application) => application.invoices, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'admission_application_id' })
+  admissionApplication?: Relation<AdmissionApplication>;
+
+  @ManyToOne(() => StudentProfile, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'student_id' })
+  student?: Relation<StudentProfile>;
+
+  @ManyToOne(() => Enrollment, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'enrollment_id' })
+  enrollment?: Relation<Enrollment>;
+
+  @ManyToOne(() => FeePlan, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'fee_plan_id' })
+  feePlan?: Relation<FeePlan>;
 
   @Index('uq_invoices_invoice_number', { unique: true })
   @Column({ name: 'invoice_number', unique: true })
@@ -1059,11 +1190,44 @@ export class Invoice {
   @Column({ name: 'amount', type: 'numeric', precision: 12, scale: 2 })
   amount: number;
 
+  @Column({ name: 'pricing_plan_type', nullable: true })
+  pricingPlanType?: PricingPlanType;
+
+  @Column({ name: 'gross_amount', type: 'numeric', precision: 12, scale: 2, default: 0 })
+  grossAmount: number;
+
+  @Column({ name: 'plan_discount_amount', type: 'numeric', precision: 12, scale: 2, default: 0 })
+  planDiscountAmount: number;
+
+  @Column({ name: 'referral_coupon_discount_amount', type: 'numeric', precision: 12, scale: 2, default: 0 })
+  referralCouponDiscountAmount: number;
+
+  @Column({ name: 'scholarship_discount_amount', type: 'numeric', precision: 12, scale: 2, default: 0 })
+  scholarshipDiscountAmount: number;
+
+  @Column({ name: 'wallet_credit_used', type: 'numeric', precision: 12, scale: 2, default: 0 })
+  walletCreditUsed: number;
+
+  @Column({ name: 'payable_amount', type: 'numeric', precision: 12, scale: 2, default: 0 })
+  payableAmount: number;
+
+  @Column({ name: 'paid_amount', type: 'numeric', precision: 12, scale: 2, default: 0 })
+  paidAmount: number;
+
+  @Column({ name: 'pending_amount', type: 'numeric', precision: 12, scale: 2, default: 0 })
+  pendingAmount: number;
+
   @CreateDateColumn({ name: 'issued_at' })
   issuedAt: Date;
 
   @Column({ name: 'status', type: 'enum', enum: InvoiceStatusEnum, default: InvoiceStatusEnum.Paid })
   status: InvoiceStatus;
+
+  @Column({ name: 'due_date', type: 'date', nullable: true })
+  dueDate?: string;
+
+  @Column({ name: 'paid_at', type: 'timestamptz', nullable: true })
+  paidAt?: Date;
 
   @Column({ name: 'pdf_url', nullable: true })
   pdfUrl?: string;
@@ -1135,8 +1299,8 @@ export class Lead {
   @Column({ name: 'email', nullable: true })
   email?: string;
 
-  @Column({ name: 'phone' })
-  phone: string;
+  @Column({ name: 'phone', nullable: true })
+  phone?: string;
 
   @Column({ name: 'course_interest', nullable: true })
   courseInterest?: string;
@@ -1186,6 +1350,418 @@ export class Lead {
   @ManyToOne(() => User, (user) => user.assignedLeads, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'assigned_to_id' })
   assignedTo?: Relation<User>;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
+}
+
+@Entity('admission_applications')
+@Index('idx_admission_applications_email', ['email'])
+@Index('idx_admission_applications_status', ['status'])
+@Index('idx_admission_applications_course_id', ['course'])
+@Index('idx_admission_applications_created_at', ['createdAt'])
+@Check('chk_admission_application_amounts', 'gross_amount >= 0 AND plan_discount_amount >= 0 AND referral_discount_amount >= 0 AND scholarship_discount_amount >= 0 AND final_payable_amount >= 0')
+export class AdmissionApplication {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ name: 'name', nullable: true })
+  name?: string;
+
+  @Column({ name: 'email' })
+  email: string;
+
+  @Column({ name: 'phone', nullable: true })
+  phone?: string;
+
+  @Column({ name: 'guardian_name', nullable: true })
+  guardianName?: string;
+
+  @Column({ name: 'guardian_phone', nullable: true })
+  guardianPhone?: string;
+
+  @Column({ name: 'city', nullable: true })
+  city?: string;
+
+  @Column({ name: 'address', type: 'text', nullable: true })
+  address?: string;
+
+  @Column({ name: 'date_of_birth', type: 'date', nullable: true })
+  dateOfBirth?: string;
+
+  @Column({ name: 'gender', type: 'enum', enum: GenderEnum, nullable: true })
+  gender?: Gender;
+
+  @Column({ name: 'education_level', nullable: true })
+  educationLevel?: string;
+
+  @ManyToOne(() => Course, (course) => course.admissionApplications, { nullable: true, onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'course_id' })
+  course?: Relation<Course>;
+
+  @ManyToOne(() => Batch, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'batch_id' })
+  batch?: Relation<Batch>;
+
+  @Column({ name: 'preferred_mode', nullable: true })
+  preferredMode?: string;
+
+  @Column({ name: 'preferred_timing', nullable: true })
+  preferredTiming?: string;
+
+  @Column({ name: 'preferred_days', nullable: true })
+  preferredDays?: string;
+
+  @Column({ name: 'pricing_plan_type', nullable: true })
+  pricingPlanType?: PricingPlanType;
+
+  @Column({ name: 'referral_code_applied', nullable: true })
+  referralCodeApplied?: string;
+
+  @Column({ name: 'referral_discount_amount', type: 'numeric', precision: 12, scale: 2, default: 0 })
+  referralDiscountAmount: number;
+
+  @Column({ name: 'gross_amount', type: 'numeric', precision: 12, scale: 2, default: 0 })
+  grossAmount: number;
+
+  @Column({ name: 'plan_discount_amount', type: 'numeric', precision: 12, scale: 2, default: 0 })
+  planDiscountAmount: number;
+
+  @Column({ name: 'scholarship_discount_amount', type: 'numeric', precision: 12, scale: 2, default: 0 })
+  scholarshipDiscountAmount: number;
+
+  @Column({ name: 'final_payable_amount', type: 'numeric', precision: 12, scale: 2, default: 0 })
+  finalPayableAmount: number;
+
+  @Column({ name: 'status', default: 'email_pending' })
+  status: AdmissionApplicationStatus;
+
+  @Column({ name: 'email_verified', default: false })
+  emailVerified: boolean;
+
+  @Column({ name: 'email_otp_hash', nullable: true, select: false })
+  emailOtpHash?: string;
+
+  @Column({ name: 'email_otp_expires_at', type: 'timestamptz', nullable: true })
+  emailOtpExpiresAt?: Date;
+
+  @Column({ name: 'email_otp_sent_at', type: 'timestamptz', nullable: true })
+  emailOtpSentAt?: Date;
+
+  @Column({ name: 'email_otp_attempts', type: 'integer', default: 0 })
+  emailOtpAttempts: number;
+
+  @Column({ name: 'email_verified_at', type: 'timestamptz', nullable: true })
+  emailVerifiedAt?: Date;
+
+  @Column({ name: 'message', type: 'text', nullable: true })
+  message?: string;
+
+  @ManyToOne(() => User, (user) => user.assignedAdmissionApplications, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'assigned_to_id' })
+  assignedTo?: Relation<User>;
+
+  @OneToMany(() => Invoice, (invoice) => invoice.admissionApplication)
+  invoices: Relation<Invoice[]>;
+
+  @OneToMany(() => PaymentIntent, (intent) => intent.admissionApplication)
+  paymentIntents: Relation<PaymentIntent[]>;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
+}
+
+@Entity('payment_intents')
+@Index('idx_payment_intents_status', ['status'])
+@Index('idx_payment_intents_merchant_transaction_id', ['merchantTransactionId'])
+@Index('idx_payment_intents_admission_application_id', ['admissionApplication'])
+@Check('chk_payment_intents_amount_non_negative', 'amount >= 0')
+export class PaymentIntent {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @ManyToOne(() => AdmissionApplication, (application) => application.paymentIntents, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'admission_application_id' })
+  admissionApplication: Relation<AdmissionApplication>;
+
+  @ManyToOne(() => StudentProfile, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'student_id' })
+  student?: Relation<StudentProfile>;
+
+  @ManyToOne(() => Invoice, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'invoice_id' })
+  invoice: Relation<Invoice>;
+
+  @ManyToOne(() => FeePlan, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'fee_plan_id' })
+  feePlan?: Relation<FeePlan>;
+
+  @Column({ name: 'gateway' })
+  gateway: PaymentGateway;
+
+  @Column({ name: 'amount', type: 'numeric', precision: 12, scale: 2 })
+  amount: number;
+
+  @Column({ name: 'currency', default: 'PKR' })
+  currency: string;
+
+  @Column({ name: 'status', default: 'created' })
+  status: PaymentIntentStatus;
+
+  @Column({ name: 'gateway_reference', nullable: true })
+  gatewayReference?: string;
+
+  @Index('uq_payment_intents_merchant_transaction_id', { unique: true })
+  @Column({ name: 'merchant_transaction_id', unique: true })
+  merchantTransactionId: string;
+
+  @Column({ name: 'redirect_url', nullable: true })
+  redirectUrl?: string;
+
+  @Column({ name: 'callback_payload', type: 'jsonb', nullable: true })
+  callbackPayload?: Record<string, unknown>;
+
+  @Column({ name: 'verified_at', type: 'timestamptz', nullable: true })
+  verifiedAt?: Date;
+
+  @OneToOne(() => Payment, (payment) => payment.paymentIntent)
+  payment?: Relation<Payment>;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
+}
+
+@Entity('referral_codes')
+@Index('idx_referral_codes_student_id', ['student'])
+export class ReferralCode {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @ManyToOne(() => StudentProfile, (student) => student.referralCodes, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'student_id' })
+  student: Relation<StudentProfile>;
+
+  @Index('uq_referral_codes_code', { unique: true })
+  @Column({ name: 'code', unique: true })
+  code: string;
+
+  @Column({ name: 'is_active', default: true })
+  isActive: boolean;
+
+  @Column({ name: 'total_uses', type: 'integer', default: 0 })
+  totalUses: number;
+
+  @Column({ name: 'total_verified_uses', type: 'integer', default: 0 })
+  totalVerifiedUses: number;
+
+  @Column({ name: 'total_credit_earned', type: 'numeric', precision: 12, scale: 2, default: 0 })
+  totalCreditEarned: number;
+
+  @OneToMany(() => ReferralRedemption, (redemption) => redemption.referralCode)
+  redemptions: Relation<ReferralRedemption[]>;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
+}
+
+@Entity('referral_redemptions')
+@Index('idx_referral_redemptions_status', ['status'])
+@Index('idx_referral_redemptions_application_id', ['referredApplication'])
+export class ReferralRedemption {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @ManyToOne(() => ReferralCode, (referralCode) => referralCode.redemptions, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'referral_code_id' })
+  referralCode: Relation<ReferralCode>;
+
+  @ManyToOne(() => StudentProfile, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'referrer_student_id' })
+  referrerStudent: Relation<StudentProfile>;
+
+  @ManyToOne(() => AdmissionApplication, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'referred_application_id' })
+  referredApplication: Relation<AdmissionApplication>;
+
+  @ManyToOne(() => StudentProfile, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'referred_student_id' })
+  referredStudent?: Relation<StudentProfile>;
+
+  @Column({ name: 'status', default: 'applied' })
+  status: ReferralRedemptionStatus;
+
+  @Column({ name: 'referred_student_discount_amount', type: 'numeric', precision: 12, scale: 2, default: 500 })
+  referredStudentDiscountAmount: number;
+
+  @Column({ name: 'referrer_credit_amount', type: 'numeric', precision: 12, scale: 2, default: 1000 })
+  referrerCreditAmount: number;
+
+  @Column({ name: 'verified_at', type: 'timestamptz', nullable: true })
+  verifiedAt?: Date;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
+}
+
+@Entity('student_wallets')
+@Index('idx_student_wallets_student_id', ['student'])
+@Check('chk_student_wallets_non_negative', 'balance >= 0 AND total_earned >= 0 AND total_used >= 0')
+export class StudentWallet {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @OneToOne(() => StudentProfile, (student) => student.wallet, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'student_id' })
+  student: Relation<StudentProfile>;
+
+  @Column({ name: 'balance', type: 'numeric', precision: 12, scale: 2, default: 0 })
+  balance: number;
+
+  @Column({ name: 'total_earned', type: 'numeric', precision: 12, scale: 2, default: 0 })
+  totalEarned: number;
+
+  @Column({ name: 'total_used', type: 'numeric', precision: 12, scale: 2, default: 0 })
+  totalUsed: number;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
+}
+
+@Entity('wallet_ledger')
+@Index('idx_wallet_ledger_student_id', ['student'])
+@Index('idx_wallet_ledger_created_at', ['createdAt'])
+export class WalletLedger {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @ManyToOne(() => StudentProfile, (student) => student.walletLedger, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'student_id' })
+  student: Relation<StudentProfile>;
+
+  @Column({ name: 'type' })
+  type: WalletLedgerType;
+
+  @Column({ name: 'source' })
+  source: WalletSource;
+
+  @Column({ name: 'amount', type: 'numeric', precision: 12, scale: 2 })
+  amount: number;
+
+  @Column({ name: 'balance_after', type: 'numeric', precision: 12, scale: 2 })
+  balanceAfter: number;
+
+  @Column({ name: 'reference_id', nullable: true })
+  referenceId?: string;
+
+  @Column({ name: 'description', type: 'text', nullable: true })
+  description?: string;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+}
+
+@Entity('scholarship_tests')
+@Index('idx_scholarship_tests_student_id', ['student'])
+@Index('idx_scholarship_tests_enrollment_id', ['enrollment'])
+export class ScholarshipTest {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @ManyToOne(() => StudentProfile, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'student_id' })
+  student: Relation<StudentProfile>;
+
+  @ManyToOne(() => Course, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'course_id' })
+  course: Relation<Course>;
+
+  @ManyToOne(() => Enrollment, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'enrollment_id' })
+  enrollment: Relation<Enrollment>;
+
+  @Column({ name: 'quarter_number', type: 'integer' })
+  quarterNumber: number;
+
+  @Column({ name: 'score_percentage', type: 'numeric', precision: 5, scale: 2 })
+  scorePercentage: number;
+
+  @Column({ name: 'status', default: 'failed' })
+  status: ScholarshipStatus;
+
+  @Column({ name: 'discount_percentage', type: 'numeric', precision: 5, scale: 2, default: 0 })
+  discountPercentage: number;
+
+  @Column({ name: 'valid_from', type: 'date', nullable: true })
+  validFrom?: string;
+
+  @Column({ name: 'valid_until', type: 'date', nullable: true })
+  validUntil?: string;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
+}
+
+@Entity('offers')
+@Index('idx_offers_slug', ['slug'])
+@Index('idx_offers_type', ['type'])
+export class Offer {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ name: 'name' })
+  name: string;
+
+  @Index('uq_offers_slug', { unique: true })
+  @Column({ name: 'slug', unique: true })
+  slug: string;
+
+  @Column({ name: 'description', type: 'text', nullable: true })
+  description?: string;
+
+  @Column({ name: 'type' })
+  type: OfferType;
+
+  @Column({ name: 'discount_percentage', type: 'numeric', precision: 5, scale: 2, default: 0 })
+  discountPercentage: number;
+
+  @Column({ name: 'discount_amount', type: 'numeric', precision: 12, scale: 2, default: 0 })
+  discountAmount: number;
+
+  @Column({ name: 'applies_to', nullable: true })
+  appliesTo?: string;
+
+  @Column({ name: 'min_course_duration_months', type: 'integer', nullable: true })
+  minCourseDurationMonths?: number;
+
+  @Column({ name: 'is_active', default: true })
+  isActive: boolean;
+
+  @Column({ name: 'start_date', type: 'date', nullable: true })
+  startDate?: string;
+
+  @Column({ name: 'end_date', type: 'date', nullable: true })
+  endDate?: string;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

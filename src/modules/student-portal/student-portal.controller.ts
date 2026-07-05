@@ -67,6 +67,16 @@ export class StudentPortalController {
     return this.studentPortalService.getPayments(request.user.id);
   }
 
+  @Get('wallet')
+  getWallet(@Req() request: AuthenticatedRequest) {
+    return this.studentPortalService.getWallet(request.user.id);
+  }
+
+  @Get('referrals')
+  getReferrals(@Req() request: AuthenticatedRequest) {
+    return this.studentPortalService.getReferrals(request.user.id);
+  }
+
   @Get('certificates')
   getCertificates(@Req() request: AuthenticatedRequest) {
     return this.studentPortalService.getCertificates(request.user.id);

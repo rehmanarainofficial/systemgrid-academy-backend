@@ -28,6 +28,7 @@ import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { StudentPortalModule } from './modules/student-portal/student-portal.module';
 import { AdminDashboardModule } from './modules/admin-dashboard/admin-dashboard.module';
 import { BlogsModule } from './modules/blogs/blogs.module';
+import { AdmissionsModule } from './modules/admissions/admissions.module';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { BlogsModule } from './modules/blogs/blogs.module';
     StudentPortalModule,
     AdminDashboardModule,
     BlogsModule,
+    AdmissionsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
