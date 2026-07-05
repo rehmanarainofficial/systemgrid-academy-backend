@@ -34,7 +34,7 @@ export class CreateBlogPostDto {
 
   @IsOptional()
   @ValidateIf((_, value) => value !== '')
-  @IsUrl({ require_protocol: true })
+  @IsUrl({ require_protocol: true, require_tld: false })
   @MaxLength(1000)
   coverImageUrl?: string;
 

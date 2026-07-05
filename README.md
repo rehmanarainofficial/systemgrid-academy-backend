@@ -53,6 +53,7 @@ npm run db:logs
 npm run migration:run
 npm run db:down
 npm run seed
+npm run seed:blogs
 ```
 
 Student seed login:
