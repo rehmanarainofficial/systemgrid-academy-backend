@@ -27,6 +27,7 @@ import { SettingsModule } from './modules/settings/settings.module';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { StudentPortalModule } from './modules/student-portal/student-portal.module';
 import { AdminDashboardModule } from './modules/admin-dashboard/admin-dashboard.module';
+import { BlogsModule } from './modules/blogs/blogs.module';
 
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import { AdminDashboardModule } from './modules/admin-dashboard/admin-dashboard.
     AuditLogsModule,
     StudentPortalModule,
     AdminDashboardModule,
+    BlogsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

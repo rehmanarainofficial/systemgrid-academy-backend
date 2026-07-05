@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'crypto';
@@ -21,31 +26,40 @@ const allowedMimeTypes = new Set([
   'text/plain',
 ]);
 
+const allowedImageMimeTypes = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+]);
+
+export type UploadedFileData = {
+  buffer: Buffer;
+  mimetype: string;
+  originalname: string;
+  size: number;
+};
+
 @Injectable()
 export class UploadsService {
+  private s3Client?: S3Client;
+
   constructor(
     @InjectRepository(AuditLog)
     private readonly auditLogsRepository: Repository<AuditLog>,
     private readonly configService: ConfigService,
   ) {}
 
-  async save(file: any, dto: UploadResourceDto, actorId: string) {
+  async save(file: UploadedFileData, dto: UploadResourceDto, actorId: string) {
     if (!file?.buffer) throw new BadRequestException('File is required');
     if (!allowedMimeTypes.has(file.mimetype)) {
       throw new BadRequestException('Unsupported file type');
     }
 
-    const uploadRoot = this.configService.get<string>('UPLOAD_DIR') ?? 'uploads';
     const folder = this.normalizeFolder(dto.module ?? dto.type ?? 'resources');
-    const extension = extname(file.originalname ?? '') || this.extensionFromMime(file.mimetype);
+    const extension =
+      extname(file.originalname ?? '') || this.extensionFromMime(file.mimetype);
     const fileName = `${Date.now()}-${randomUUID()}${extension}`;
-    const directory = join(process.cwd(), uploadRoot, folder);
-    const storagePath = join(directory, fileName);
-
-    await mkdir(directory, { recursive: true });
-    await writeFile(storagePath, file.buffer);
-
-    const url = `/uploads/${folder}/${fileName}`;
+    const url = await this.persist(file, folder, fileName);
     await this.auditLogsRepository.save(
       this.auditLogsRepository.create({
         user: { id: actorId } as User,
@@ -73,13 +87,87 @@ export class UploadsService {
     };
   }
 
+  async saveImage(file: UploadedFileData, folder: string, actorId: string) {
+    if (!file?.buffer) throw new BadRequestException('Image is required');
+    if (!allowedImageMimeTypes.has(file.mimetype)) {
+      throw new BadRequestException(
+        'Only JPG, PNG, and WebP images are supported',
+      );
+    }
+
+    return this.save(file, { module: folder, type: 'image' }, actorId);
+  }
+
+  private async persist(
+    file: UploadedFileData,
+    folder: string,
+    fileName: string,
+  ) {
+    const storageDriver = (
+      this.configService.get<string>('STORAGE_DRIVER') ?? 'local'
+    ).toLowerCase();
+    if (storageDriver === 's3') {
+      return this.persistToS3(file, folder, fileName);
+    }
+
+    const uploadRoot =
+      this.configService.get<string>('UPLOAD_DIR') ?? 'uploads';
+    const directory = join(process.cwd(), uploadRoot, folder);
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, fileName), file.buffer);
+    const publicBackendUrl = (
+      this.configService.get<string>('BACKEND_PUBLIC_URL') ??
+      'http://localhost:5000'
+    ).replace(/\/$/, '');
+    return `${publicBackendUrl}/uploads/${folder}/${fileName}`;
+  }
+
+  private async persistToS3(
+    file: UploadedFileData,
+    folder: string,
+    fileName: string,
+  ) {
+    const bucket = this.configService.get<string>('AWS_S3_BUCKET');
+    const region = this.configService.get<string>('AWS_REGION');
+    if (!bucket || !region) {
+      throw new InternalServerErrorException('S3 storage is not configured');
+    }
+
+    const key = `${folder}/${fileName}`;
+    await this.getS3Client(region).send(
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        Body: file.buffer,
+        ContentType: file.mimetype,
+        CacheControl: 'public, max-age=31536000, immutable',
+      }),
+    );
+
+    const publicBaseUrl =
+      this.configService
+        .get<string>('AWS_S3_PUBLIC_BASE_URL')
+        ?.replace(/\/$/, '') ?? `https://${bucket}.s3.${region}.amazonaws.com`;
+    const encodedKey = key.split('/').map(encodeURIComponent).join('/');
+    return `${publicBaseUrl}/${encodedKey}`;
+  }
+
+  private getS3Client(region: string) {
+    if (!this.s3Client) {
+      this.s3Client = new S3Client({ region, maxAttempts: 3 });
+    }
+    return this.s3Client;
+  }
+
   private normalizeFolder(value: string) {
-    return value
-      .toLowerCase()
-      .replace(/[^a-z0-9-]/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '')
-      .slice(0, 60) || 'resources';
+    return (
+      value
+        .toLowerCase()
+        .replace(/[^a-z0-9-]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 60) || 'resources'
+    );
   }
 
   private extensionFromMime(mimeType: string) {

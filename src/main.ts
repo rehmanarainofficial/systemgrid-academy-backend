@@ -1,6 +1,8 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
+import { join } from 'path';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
@@ -9,7 +11,7 @@ import { requestLoggingMiddleware } from './common/middleware/request-logging.mi
 import { securityHeadersMiddleware } from './common/middleware/security-headers.middleware';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const frontendUrls = (process.env.FRONTEND_URL ?? 'http://localhost:3000')
     .split(',')
     .map((origin) => origin.trim())
@@ -24,6 +26,12 @@ async function bootstrap() {
   }
 
   app.setGlobalPrefix(apiPrefix);
+  app.useStaticAssets(
+    join(process.cwd(), process.env.UPLOAD_DIR ?? 'uploads'),
+    {
+      prefix: '/uploads/',
+    },
+  );
   app.enableCors({
     origin: frontendUrls,
     credentials: true,
@@ -45,4 +53,4 @@ async function bootstrap() {
 
   await app.listen(process.env.PORT ?? 4000);
 }
-bootstrap();
+void bootstrap();

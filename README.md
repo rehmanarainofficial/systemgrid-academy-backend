@@ -147,6 +147,22 @@ PATCH /api/v1/admin/enrollments/:id/status
 POST  /api/v1/admin/uploads
 ```
 
+Blog publishing endpoints:
+
+```bash
+GET    /api/v1/public/blog
+GET    /api/v1/public/blog/:slug
+GET    /api/v1/admin/blog
+POST   /api/v1/admin/blog
+PATCH  /api/v1/admin/blog/:id
+PATCH  /api/v1/admin/blog/:id/publish
+PATCH  /api/v1/admin/blog/:id/unpublish
+DELETE /api/v1/admin/blog/:id
+POST   /api/v1/admin/blog/upload-image
+```
+
+Only Admin and Super Admin roles can access blog management endpoints. Run `npm run migration:run` after deployment to create the `blog_posts` table. S3 setup and least-privilege IAM guidance are documented in `docs/S3_BLOG_STORAGE.md`.
+
 Local password reset returns a `resetToken` in non-production mode so the flow can be tested before email integration. Production should send that token through the configured email provider instead of returning it in API responses.
 
 ## Production Docs
@@ -155,6 +171,7 @@ Local password reset returns a `resetToken` in non-production mode so the flow c
 - Backup strategy: `docs/BACKUP_STRATEGY.md`
 - Production compose file: `docker-compose.prod.yml`
 - Production image: `Dockerfile`
+- S3 blog images: `docs/S3_BLOG_STORAGE.md`
 
 ## Public Phase 2 Endpoints
 

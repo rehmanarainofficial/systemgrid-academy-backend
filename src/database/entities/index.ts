@@ -22,8 +22,10 @@ import {
   StudentProfile,
   User,
 } from './academy.entities';
+import { BlogPost } from './blog-post.entity';
 
 export * from './academy.entities';
+export * from './blog-post.entity';
 
 export const academyEntities = [
   User,
@@ -48,4 +50,5 @@ export const academyEntities = [
   Notification,
   Setting,
   AuditLog,
+  BlogPost,
 ];

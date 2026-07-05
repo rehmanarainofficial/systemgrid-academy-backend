@@ -8,5 +8,6 @@ import { UploadsService } from './uploads.service';
   imports: [TypeOrmModule.forFeature([AuditLog])],
   controllers: [UploadsController],
   providers: [UploadsService],
+  exports: [UploadsService],
 })
 export class UploadsModule {}
