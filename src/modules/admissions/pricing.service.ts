@@ -87,8 +87,8 @@ export class PricingService {
   }
 
   validatePlanAvailability(plan: PricingPlanType, durationMonths: number) {
-    if (plan === 'quarterly' && durationMonths < 6) {
-      throw new BadRequestException('Quarterly plan is available for 6-month or longer courses only');
+    if (plan === 'quarterly' && durationMonths < 3) {
+      throw new BadRequestException('Quarterly plan is available for 3-month or longer courses only');
     }
   }
 

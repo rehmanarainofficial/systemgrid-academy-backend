@@ -14,6 +14,7 @@ type AuthTokenPayload = {
   sub: string;
   email: string;
   role: UserRole;
+  rememberMe?: boolean;
   purpose?: 'password_reset';
 };
 
@@ -44,8 +45,9 @@ export class AuthService {
       throw new UnauthorizedException('This user account is inactive');
     }
 
-    const tokens = await this.signTokens(user.id, user.email, user.role);
-    this.setAuthCookies(response, tokens, user.role);
+    const rememberMe = Boolean(dto.rememberMe);
+    const tokens = await this.signTokens(user.id, user.email, user.role, rememberMe);
+    this.setAuthCookies(response, tokens, user.role, rememberMe);
     await this.usersService.touchLastLogin(user.id);
 
     return {
@@ -84,8 +86,8 @@ export class AuthService {
       throw new UnauthorizedException('This user account is inactive');
     }
 
-    const tokens = await this.signTokens(user.id, user.email, user.role);
-    this.setAuthCookies(response, tokens, user.role);
+    const tokens = await this.signTokens(user.id, user.email, user.role, Boolean(payload.rememberMe));
+    this.setAuthCookies(response, tokens, user.role, Boolean(payload.rememberMe));
 
     return {
       user: this.sanitizeUser(user),
@@ -146,14 +148,14 @@ export class AuthService {
     return { message: 'Password has been reset successfully.' };
   }
 
-  private async signTokens(userId: string, email: string, role: UserRole) {
-    const payload = { sub: userId, email, role };
+  private async signTokens(userId: string, email: string, role: UserRole, rememberMe = true) {
+    const payload = { sub: userId, email, role, rememberMe };
     const accessExpiresIn = (this.configService.get<string>(
       'JWT_ACCESS_EXPIRES_IN',
     ) ?? '15m') as JwtSignOptions['expiresIn'];
-    const refreshExpiresIn = (this.configService.get<string>(
-      'JWT_REFRESH_EXPIRES_IN',
-    ) ?? '7d') as JwtSignOptions['expiresIn'];
+    const refreshExpiresIn = (rememberMe
+      ? (this.configService.get<string>('JWT_REMEMBER_EXPIRES_IN') ?? '30d')
+      : (this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') ?? '7d')) as JwtSignOptions['expiresIn'];
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {
@@ -177,25 +179,28 @@ export class AuthService {
     response: Response,
     tokens: { accessToken: string; refreshToken: string },
     role: UserRole,
+    rememberMe = true,
   ) {
     const secure = this.configService.get('NODE_ENV') === 'production';
+    const persistentCookie = rememberMe ? { maxAge: 1000 * 60 * 60 * 24 * 30 } : {};
+    const accessCookie = rememberMe ? { maxAge: 1000 * 60 * 15 } : {};
     response.cookie('sg_refresh_token', tokens.refreshToken, {
       httpOnly: true,
       sameSite: 'lax',
       secure,
-      maxAge: 1000 * 60 * 60 * 24 * 7,
+      ...persistentCookie,
     });
     response.cookie('sg_access_token', tokens.accessToken, {
       httpOnly: true,
       sameSite: 'lax',
       secure,
-      maxAge: 1000 * 60 * 15,
+      ...accessCookie,
     });
     response.cookie('sg_user_role', role, {
       httpOnly: false,
       sameSite: 'lax',
       secure,
-      maxAge: 1000 * 60 * 60 * 24 * 7,
+      ...persistentCookie,
     });
   }
 

@@ -92,7 +92,6 @@ export class AdmissionsService {
       applicationId: application.id,
       message: 'Verification code sent successfully',
       expiresAt,
-      devOtp: this.configService.get('NODE_ENV') === 'production' ? undefined : otp,
     };
   }
 
