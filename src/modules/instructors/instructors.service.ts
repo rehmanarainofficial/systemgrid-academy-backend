@@ -1,5 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import * as bcrypt from 'bcryptjs';
 import { Brackets, DataSource } from 'typeorm';
+import { UserRole } from '../../common/enums/user-role.enum';
 import { AuditLog, Batch, Instructor, User } from '../../database/entities';
 import { AdminInstructorsQueryDto } from './dto/admin-instructors-query.dto';
 import { CreateInstructorDto } from './dto/create-instructor.dto';
@@ -37,9 +39,35 @@ export class InstructorsService {
 
   async create(dto: CreateInstructorDto, actorId: string) {
     if (dto.email) await this.ensureEmail(dto.email);
-    const instructor = await this.dataSource.getRepository(Instructor).save({ name: dto.name.trim(), email: dto.email?.trim().toLowerCase() || undefined, phone: dto.phone.trim(), specialization: dto.specialization.trim(), bio: dto.bio?.trim() || undefined, imageUrl: dto.imageUrl?.trim() || undefined, isActive: dto.isActive ?? true });
-    await this.log(actorId, 'create', instructor.id);
+    const loginUser = await this.provisionLoginUser(dto);
+    const instructor = await this.dataSource.getRepository(Instructor).save({ name: dto.name.trim(), email: dto.email?.trim().toLowerCase() || undefined, phone: dto.phone.trim(), specialization: dto.specialization.trim(), bio: dto.bio?.trim() || undefined, imageUrl: dto.imageUrl?.trim() || undefined, isActive: dto.isActive ?? true, user: loginUser ?? undefined });
+    await this.log(actorId, 'create', instructor.id, loginUser ? { loginAccount: loginUser.id } : undefined);
     return this.findOne(instructor.id);
+  }
+
+  // Creates (or promotes an existing) user account with the Instructor role so
+  // the instructor can log into the instructor portal. Requires email+password.
+  private async provisionLoginUser(dto: CreateInstructorDto): Promise<User | null> {
+    const email = dto.email?.trim().toLowerCase();
+    if (!email || !dto.password) return null;
+    const users = this.dataSource.getRepository(User);
+    const existing = await users.findOne({ where: { email } });
+    if (existing) {
+      existing.role = UserRole.Instructor;
+      existing.isActive = dto.isActive ?? true;
+      existing.password = await bcrypt.hash(dto.password, 12);
+      return users.save(existing);
+    }
+    return users.save(
+      users.create({
+        name: dto.name.trim(),
+        email,
+        phone: dto.phone.trim(),
+        password: await bcrypt.hash(dto.password, 12),
+        role: UserRole.Instructor,
+        isActive: dto.isActive ?? true,
+      }),
+    );
   }
 
   async update(id: string, dto: UpdateInstructorDto, actorId: string) {

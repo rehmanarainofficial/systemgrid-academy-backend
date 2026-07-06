@@ -11,11 +11,10 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { UserRole } from '../../common/enums/user-role.enum';
+import { Access } from '../../common/decorators/access.decorator';
 import { ActiveUserGuard } from '../../common/guards/active-user.guard';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
+import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import type { User } from '../../database/entities';
 import { AdminLeadsQueryDto } from './dto/admin-leads-query.dto';
 import { ConvertLeadToStudentDto } from './dto/convert-lead-to-student.dto';
@@ -46,8 +45,8 @@ export class LeadsController {
   }
 }
 
-@UseGuards(JwtAuthGuard, ActiveUserGuard, RolesGuard)
-@Roles(UserRole.Admin, UserRole.SuperAdmin, UserRole.Staff)
+@UseGuards(JwtAuthGuard, ActiveUserGuard, PermissionsGuard)
+@Access('leads')
 @Controller('admin/leads')
 export class AdminLeadsController {
   constructor(private readonly leadsService: LeadsService) {}

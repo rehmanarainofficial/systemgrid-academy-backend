@@ -11,12 +11,11 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { Access } from '../../common/decorators/access.decorator';
 import { PaginationDto } from '../../common/dto/pagination.dto';
-import { UserRole } from '../../common/enums/user-role.enum';
 import { ActiveUserGuard } from '../../common/guards/active-user.guard';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
+import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import type { User } from '../../database/entities';
 import { AdminCoursesQueryDto } from './dto/admin-courses-query.dto';
 import { CreateAdminCourseDto } from './dto/create-admin-course.dto';
@@ -40,8 +39,8 @@ export class CoursesController {
   }
 }
 
-@UseGuards(JwtAuthGuard, ActiveUserGuard, RolesGuard)
-@Roles(UserRole.Admin, UserRole.SuperAdmin, UserRole.Staff)
+@UseGuards(JwtAuthGuard, ActiveUserGuard, PermissionsGuard)
+@Access('courses')
 @Controller('admin/courses')
 export class AdminCoursesController {
   constructor(private readonly coursesService: CoursesService) {}
@@ -85,7 +84,6 @@ export class AdminCoursesController {
     return this.coursesService.setPublished(id, false, request.user.id);
   }
 
-  @Roles(UserRole.Admin, UserRole.SuperAdmin)
   @Delete(':id')
   remove(@Param('id') id: string, @Req() request: AdminRequest) {
     return this.coursesService.deleteAdminCourse(id, request.user.id);

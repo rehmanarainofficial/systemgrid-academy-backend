@@ -893,6 +893,10 @@ export class Instructor {
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
 
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'user_id' })
+  user?: Relation<User>;
+
   @OneToMany(() => Batch, (batch) => batch.instructor)
   batches: Relation<Batch[]>;
 

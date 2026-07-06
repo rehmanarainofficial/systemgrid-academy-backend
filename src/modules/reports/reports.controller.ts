@@ -1,14 +1,13 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { UserRole } from '../../common/enums/user-role.enum';
+import { Access } from '../../common/decorators/access.decorator';
 import { ActiveUserGuard } from '../../common/guards/active-user.guard';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
+import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { AdminReportsQueryDto } from './dto/admin-reports-query.dto';
 import { ReportsService } from './reports.service';
 
-@UseGuards(JwtAuthGuard, ActiveUserGuard, RolesGuard)
-@Roles(UserRole.Admin, UserRole.SuperAdmin, UserRole.Staff)
+@UseGuards(JwtAuthGuard, ActiveUserGuard, PermissionsGuard)
+@Access('reports')
 @Controller('admin/reports')
 export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}

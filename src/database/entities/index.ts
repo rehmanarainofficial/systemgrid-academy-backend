@@ -38,9 +38,11 @@ import {
   WalletLedger,
 } from './academy.entities';
 import { BlogPost } from './blog-post.entity';
+import { RolePermission } from './role-permission.entity';
 
 export * from './academy.entities';
 export * from './blog-post.entity';
+export * from './role-permission.entity';
 
 export const academyEntities = [
   User,
@@ -81,4 +83,5 @@ export const academyEntities = [
   Setting,
   AuditLog,
   BlogPost,
+  RolePermission,
 ];

@@ -1,9 +1,9 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { UserRole } from '../../common/enums/user-role.enum';
+import { Access } from '../../common/decorators/access.decorator';
+import { ActiveUserGuard } from '../../common/guards/active-user.guard';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
+import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { User } from '../../database/entities';
 import { AdminEnrollmentsQueryDto } from './dto/admin-enrollments-query.dto';
 import { CreateEnrollmentDto } from './dto/create-enrollment.dto';
@@ -12,8 +12,8 @@ import { EnrollmentsService } from './enrollments.service';
 
 type AdminRequest = Request & { user: User };
 
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.SuperAdmin, UserRole.Admin, UserRole.Staff)
+@UseGuards(JwtAuthGuard, ActiveUserGuard, PermissionsGuard)
+@Access('enrollments')
 @Controller('admin/enrollments')
 export class EnrollmentsController {
   constructor(private readonly enrollmentsService: EnrollmentsService) {}

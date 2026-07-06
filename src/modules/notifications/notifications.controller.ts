@@ -1,10 +1,9 @@
 import { Body, Controller, Delete, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { UserRole } from '../../common/enums/user-role.enum';
+import { Access } from '../../common/decorators/access.decorator';
 import { ActiveUserGuard } from '../../common/guards/active-user.guard';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
+import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import type { User } from '../../database/entities';
 import { AdminNotificationsQueryDto } from './dto/admin-notifications-query.dto';
 import { SendAdminNotificationDto } from './dto/send-admin-notification.dto';
@@ -12,8 +11,8 @@ import { NotificationsService } from './notifications.service';
 
 type AdminRequest = Request & { user: User };
 
-@UseGuards(JwtAuthGuard, ActiveUserGuard, RolesGuard)
-@Roles(UserRole.Admin, UserRole.SuperAdmin, UserRole.Staff)
+@UseGuards(JwtAuthGuard, ActiveUserGuard, PermissionsGuard)
+@Access('notifications')
 @Controller('admin/notifications')
 export class NotificationsController {
   constructor(private readonly service: NotificationsService) {}

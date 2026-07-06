@@ -1,10 +1,9 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { UserRole } from '../../common/enums/user-role.enum';
+import { Access } from '../../common/decorators/access.decorator';
 import { ActiveUserGuard } from '../../common/guards/active-user.guard';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
+import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import type { User } from '../../database/entities';
 import { BatchesService } from './batches.service';
 import { AdminBatchesQueryDto } from './dto/admin-batches-query.dto';
@@ -17,8 +16,8 @@ import { UpdateBatchStatusDto } from './dto/update-batch-status.dto';
 
 type AdminRequest = Request & { user: User };
 
-@UseGuards(JwtAuthGuard, ActiveUserGuard, RolesGuard)
-@Roles(UserRole.Admin, UserRole.SuperAdmin, UserRole.Staff)
+@UseGuards(JwtAuthGuard, ActiveUserGuard, PermissionsGuard)
+@Access('batches')
 @Controller('admin/batches')
 export class BatchesController {
   constructor(private readonly service: BatchesService) {}
@@ -35,6 +34,5 @@ export class BatchesController {
   @Patch(':id/schedule/:scheduleId/status') scheduleStatus(@Param('id') id: string, @Param('scheduleId') scheduleId: string, @Body('status') status: 'upcoming' | 'completed' | 'cancelled', @Req() request: AdminRequest) { return this.service.updateScheduleStatus(id, scheduleId, status, request.user.id); }
   @Patch(':id') update(@Param('id') id: string, @Body() dto: UpdateAdminBatchDto, @Req() request: AdminRequest) { return this.service.update(id, dto, request.user.id); }
   @Patch(':id/status') status(@Param('id') id: string, @Body() dto: UpdateBatchStatusDto, @Req() request: AdminRequest) { return this.service.updateStatus(id, dto.status, request.user.id); }
-  @Roles(UserRole.Admin, UserRole.SuperAdmin)
   @Delete(':id') remove(@Param('id') id: string, @Req() request: AdminRequest) { return this.service.remove(id, request.user.id); }
 }

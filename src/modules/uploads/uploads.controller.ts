@@ -11,6 +11,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request } from 'express';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
+import { ActiveUserGuard } from '../../common/guards/active-user.guard';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { User } from '../../database/entities';
@@ -20,8 +21,8 @@ import { UploadsService } from './uploads.service';
 
 type AdminRequest = Request & { user: User };
 
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.SuperAdmin, UserRole.Admin, UserRole.Staff)
+@UseGuards(JwtAuthGuard, ActiveUserGuard, RolesGuard)
+@Roles(UserRole.SuperAdmin, UserRole.Admin, UserRole.Staff, UserRole.Instructor)
 @Controller('admin/uploads')
 export class UploadsController {
   constructor(private readonly uploadsService: UploadsService) {}

@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { DatabaseModule } from './database/database.module';
+import { AccessControlModule } from './modules/access-control/access-control.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { StudentsModule } from './modules/students/students.module';
@@ -26,6 +27,7 @@ import { ReportsModule } from './modules/reports/reports.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { StudentPortalModule } from './modules/student-portal/student-portal.module';
+import { InstructorPortalModule } from './modules/instructor-portal/instructor-portal.module';
 import { AdminDashboardModule } from './modules/admin-dashboard/admin-dashboard.module';
 import { BlogsModule } from './modules/blogs/blogs.module';
 import { AdmissionsModule } from './modules/admissions/admissions.module';
@@ -34,6 +36,7 @@ import { AdmissionsModule } from './modules/admissions/admissions.module';
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     DatabaseModule,
+    AccessControlModule,
     AuthModule,
     UsersModule,
     StudentsModule,
@@ -57,6 +60,7 @@ import { AdmissionsModule } from './modules/admissions/admissions.module';
     SettingsModule,
     AuditLogsModule,
     StudentPortalModule,
+    InstructorPortalModule,
     AdminDashboardModule,
     BlogsModule,
     AdmissionsModule,
