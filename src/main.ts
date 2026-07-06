@@ -1,3 +1,12 @@
+import { types } from 'pg';
+// Postgres `timestamp without time zone` columns (@CreateDateColumn etc.) hold
+// UTC, but the pg driver otherwise parses them in the server's local zone,
+// which shifted every returned ISO string by the local offset (e.g. -5h in
+// Pakistan). Force them to be read as UTC so timestamps are globally correct.
+types.setTypeParser(1114, (value: string) =>
+  new Date(`${value.replace(' ', 'T')}Z`),
+);
+
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
