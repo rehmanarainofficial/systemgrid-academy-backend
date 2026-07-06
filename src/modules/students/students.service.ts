@@ -6,10 +6,11 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
-import { Brackets, DataSource, In, Repository } from 'typeorm';
+import { Brackets, DataSource, EntityManager, In, Not, Repository } from 'typeorm';
 import { UserRole } from '../../common/enums/user-role.enum';
 import {
   Attendance,
+  AdmissionApplication,
   Assignment,
   AuditLog,
   Batch,
@@ -27,6 +28,7 @@ import { CreateAdminStudentDto } from './dto/create-admin-student.dto';
 import { EnrollAdminStudentDto } from './dto/enroll-admin-student.dto';
 import { ResetStudentPasswordDto } from './dto/reset-student-password.dto';
 import { UpdateAdminStudentDto } from './dto/update-admin-student.dto';
+import { UpdateAdminEnrollmentDto } from './dto/update-admin-enrollment.dto';
 import { UpdateStudentStatusDto } from './dto/update-student-status.dto';
 
 @Injectable()
@@ -197,6 +199,13 @@ export class StudentsService {
         gender: student.gender ?? '',
         address: student.address ?? '',
         educationLevel: student.educationLevel ?? '',
+        courseInterest: student.courseInterest ?? '',
+        preferredMode: student.preferredMode ?? '',
+        preferredTiming: student.preferredTiming ?? '',
+        preferredDays: student.preferredDays ?? '',
+        admissionMessage: student.admissionMessage ?? '',
+        emailVerified: student.emailVerified,
+        emailVerifiedAt: student.emailVerifiedAt ?? null,
         source: student.source,
       },
       summary: {
@@ -211,7 +220,9 @@ export class StudentsService {
       },
       enrollments: (student.enrollments ?? []).map((enrollment) => ({
         id: enrollment.id,
+        courseId: enrollment.course.id,
         courseTitle: enrollment.course.title,
+        batchId: enrollment.batch?.id ?? '',
         batchTitle: enrollment.batch?.title ?? '',
         status: enrollment.status,
         progressPercentage: Number(enrollment.progressPercentage),
@@ -263,6 +274,11 @@ export class StudentsService {
       if (await manager.findOne(User, { where: { email } })) {
         throw new ConflictException('A user with this email already exists');
       }
+      const verification = await this.requireVerifiedEmail(
+        manager,
+        dto.emailVerificationApplicationId,
+        email,
+      );
       const user = await manager.save(
         manager.create(User, {
           name: dto.name.trim(),
@@ -281,6 +297,13 @@ export class StudentsService {
           guardianPhone: dto.guardianPhone?.trim() || undefined,
           address: dto.address?.trim() || undefined,
           educationLevel: dto.educationLevel?.trim() || undefined,
+          courseInterest: dto.courseInterest?.trim() || undefined,
+          preferredMode: dto.preferredMode?.trim() || undefined,
+          preferredTiming: dto.preferredTiming?.trim() || undefined,
+          preferredDays: dto.preferredDays?.trim() || undefined,
+          admissionMessage: dto.admissionMessage?.trim() || undefined,
+          emailVerified: true,
+          emailVerifiedAt: verification.emailVerifiedAt ?? new Date(),
           dateOfBirth: dto.dateOfBirth,
           gender: this.normalizeGender(dto.gender),
           source: this.normalizeSource(dto.source),
@@ -307,6 +330,8 @@ export class StudentsService {
           status: dto.enrollment.status,
           progressPercentage: 0,
         }));
+        student.courseInterest = course.title;
+        await manager.save(student);
       }
       await manager.save(
         manager.create(AuditLog, {
@@ -314,9 +339,15 @@ export class StudentsService {
           action: 'create',
           module: 'students',
           recordId: student.id,
-          metadata: { email: user.email, source: dto.source ?? 'admin', enrolled: Boolean(dto.enrollment) },
+          metadata: {
+            email: user.email,
+            source: dto.source ?? 'admin',
+            emailVerified: true,
+            enrolled: Boolean(dto.enrollment),
+          },
         }),
       );
+      await manager.remove(verification);
       return student.id;
     });
     return this.findAdminDetail(studentId);
@@ -336,35 +367,90 @@ export class StudentsService {
     dto: UpdateAdminStudentDto,
     actorId: string,
   ) {
-    const student = await this.studentsRepository.findOne({
-      where: { id },
-      relations: { user: true },
-    });
-    if (!student) throw new NotFoundException('Student not found');
-
-    if (dto.email && dto.email.toLowerCase() !== student.user.email.toLowerCase()) {
-      const existing = await this.dataSource.getRepository(User).findOne({
-        where: { email: dto.email.trim().toLowerCase() },
+    await this.dataSource.transaction(async (manager) => {
+      const student = await manager.findOne(StudentProfile, {
+        where: { id },
+        relations: { user: true },
       });
-      if (existing) throw new ConflictException('A user with this email already exists');
-      student.user.email = dto.email.trim().toLowerCase();
+      if (!student) throw new NotFoundException('Student not found');
+
+      const requestedEmail = dto.email?.trim().toLowerCase() ?? student.user.email.toLowerCase();
+      const emailChanged = requestedEmail !== student.user.email.toLowerCase();
+      let verification: AdmissionApplication | undefined;
+
+      if (emailChanged || !student.emailVerified) {
+        if (!dto.emailVerificationApplicationId) {
+          throw new BadRequestException('Verify the new email address before saving');
+        }
+        verification = await this.requireVerifiedEmail(
+          manager,
+          dto.emailVerificationApplicationId,
+          requestedEmail,
+        );
+      }
+
+      if (emailChanged) {
+        const existing = await manager.findOne(User, {
+          where: { email: requestedEmail, id: Not(student.user.id) },
+        });
+        if (existing) throw new ConflictException('A user with this email already exists');
+        student.user.email = requestedEmail;
+      }
+      if (verification) {
+        student.emailVerified = true;
+        student.emailVerifiedAt = verification.emailVerifiedAt ?? new Date();
+      }
+      if (dto.name) student.user.name = dto.name.trim();
+      if (dto.phone) student.user.phone = dto.phone.trim();
+      if (dto.password) student.user.password = await bcrypt.hash(dto.password, 12);
+      if (dto.city !== undefined) student.city = dto.city.trim() || undefined;
+      if (dto.guardianName !== undefined) student.guardianName = dto.guardianName.trim() || undefined;
+      if (dto.guardianPhone !== undefined) student.guardianPhone = dto.guardianPhone.trim() || undefined;
+      if (dto.address !== undefined) student.address = dto.address.trim() || undefined;
+      if (dto.educationLevel !== undefined) student.educationLevel = dto.educationLevel.trim() || undefined;
+      if (dto.courseInterest !== undefined) student.courseInterest = dto.courseInterest.trim() || undefined;
+      if (dto.preferredMode !== undefined) student.preferredMode = dto.preferredMode.trim() || undefined;
+      if (dto.preferredTiming !== undefined) student.preferredTiming = dto.preferredTiming.trim() || undefined;
+      if (dto.preferredDays !== undefined) student.preferredDays = dto.preferredDays.trim() || undefined;
+      if (dto.admissionMessage !== undefined) student.admissionMessage = dto.admissionMessage.trim() || undefined;
+      if (dto.dateOfBirth !== undefined) student.dateOfBirth = dto.dateOfBirth || undefined;
+      if (dto.gender !== undefined) student.gender = this.normalizeGender(dto.gender);
+      if (dto.source !== undefined) student.source = this.normalizeSource(dto.source);
+      if (dto.status) {
+        student.status = dto.status;
+        student.user.isActive = dto.status === 'active';
+      }
+      await manager.save(student.user);
+      await manager.save(student);
+      await manager.save(manager.create(AuditLog, {
+        user: { id: actorId } as User,
+        action: 'update',
+        module: 'students',
+        recordId: id,
+        metadata: { fields: Object.keys(dto), emailReverified: Boolean(verification) },
+      }));
+      if (verification) await manager.remove(verification);
+    });
+    return this.findAdminDetail(id);
+  }
+
+  private async requireVerifiedEmail(
+    manager: EntityManager,
+    applicationId: string,
+    email: string,
+  ) {
+    const verification = await manager.findOne(AdmissionApplication, {
+      where: {
+        id: applicationId,
+        email,
+        status: 'verified',
+        emailVerified: true,
+      },
+    });
+    if (!verification) {
+      throw new BadRequestException('Email verification is missing or no longer valid');
     }
-    if (dto.name) student.user.name = dto.name.trim();
-    if (dto.phone) student.user.phone = dto.phone.trim();
-    if (dto.password) student.user.password = await bcrypt.hash(dto.password, 12);
-    if (dto.city !== undefined) student.city = dto.city.trim() || undefined;
-    if (dto.guardianName !== undefined) student.guardianName = dto.guardianName.trim() || undefined;
-    if (dto.guardianPhone !== undefined) student.guardianPhone = dto.guardianPhone.trim() || undefined;
-    if (dto.address !== undefined) student.address = dto.address.trim() || undefined;
-    if (dto.educationLevel !== undefined) student.educationLevel = dto.educationLevel.trim() || undefined;
-    if (dto.status) {
-      student.status = dto.status;
-      student.user.isActive = dto.status === 'active';
-    }
-    await this.dataSource.getRepository(User).save(student.user);
-    await this.studentsRepository.save(student);
-    await this.logAction(actorId, 'update', id, { fields: Object.keys(dto) });
-    return this.safeStudent(student, student.user);
+    return verification;
   }
 
   async updateStatus(
@@ -426,6 +512,88 @@ export class StudentsService {
     return { message: 'Student enrolled successfully', enrollmentId: enrollment.id };
   }
 
+  async updateEnrollment(
+    id: string,
+    enrollmentId: string,
+    dto: UpdateAdminEnrollmentDto,
+    actorId: string,
+  ) {
+    const repository = this.dataSource.getRepository(Enrollment);
+    const enrollment = await repository.findOne({
+      where: { id: enrollmentId, student: { id } },
+      relations: { student: true, course: true, batch: { course: true } },
+    });
+    if (!enrollment) throw new NotFoundException('Enrollment not found');
+
+    let course = enrollment.course;
+    if (dto.courseId && dto.courseId !== enrollment.course.id) {
+      course =
+        (await this.dataSource.getRepository(Course).findOne({
+          where: { id: dto.courseId },
+        })) ?? course;
+      if (!course || course.id !== dto.courseId) throw new BadRequestException('Course not found');
+      const duplicate = await repository.findOne({
+        where: {
+          id: Not(enrollmentId),
+          student: { id },
+          course: { id: course.id },
+        },
+      });
+      if (duplicate) {
+        throw new ConflictException('Student already has an enrollment for this course');
+      }
+      enrollment.course = course;
+      enrollment.batch = undefined;
+    }
+
+    if (dto.batchId !== undefined) {
+      if (!dto.batchId) {
+        enrollment.batch = undefined;
+      } else {
+        const batch = await this.dataSource.getRepository(Batch).findOne({
+          where: { id: dto.batchId },
+          relations: { course: true },
+        });
+        if (!batch || batch.course.id !== course.id) {
+          throw new BadRequestException('Batch does not belong to the selected course');
+        }
+        enrollment.batch = batch;
+      }
+    }
+
+    if (dto.status) {
+      enrollment.status = dto.status;
+      enrollment.completedAt = dto.status === 'completed' ? (enrollment.completedAt ?? new Date()) : undefined;
+    }
+
+    await repository.save(enrollment);
+    await this.logAction(actorId, 'update_enrollment', id, {
+      enrollmentId,
+      courseId: enrollment.course.id,
+      batchId: enrollment.batch?.id,
+      status: enrollment.status,
+    });
+    return { message: 'Enrollment updated successfully', enrollmentId };
+  }
+
+  async unenroll(id: string, enrollmentId: string, actorId: string) {
+    const repository = this.dataSource.getRepository(Enrollment);
+    const enrollment = await repository.findOne({
+      where: { id: enrollmentId, student: { id } },
+      relations: { student: true, course: true, batch: true },
+    });
+    if (!enrollment) throw new NotFoundException('Enrollment not found');
+    enrollment.status = 'cancelled';
+    enrollment.completedAt = undefined;
+    await repository.save(enrollment);
+    await this.logAction(actorId, 'unenroll', id, {
+      enrollmentId,
+      courseId: enrollment.course.id,
+      batchId: enrollment.batch?.id,
+    });
+    return { message: 'Student unenrolled from this course', enrollmentId };
+  }
+
   async archive(id: string, actorId: string) {
     const student = await this.studentsRepository.findOne({
       where: { id },
@@ -457,11 +625,14 @@ export class StudentsService {
     return students.map((student) => {
       const studentAttendance = attendance.filter((item) => item.student.id === student.id);
       const attended = studentAttendance.filter((item) => ['present', 'late'].includes(item.status)).length;
-      const activeEnrollment = (student.enrollments ?? []).find((item) => item.status === 'active');
+      const visibleEnrollment =
+        (student.enrollments ?? []).find((item) => ['active', 'pending'].includes(item.status)) ??
+        (student.enrollments ?? []).find((item) => item.status === 'completed') ??
+        (student.enrollments ?? [])[0];
       return {
         ...this.safeStudent(student, student.user),
         enrolledCourses: (student.enrollments ?? []).length,
-        activeCourseTitle: activeEnrollment?.course?.title ?? '',
+        activeCourseTitle: visibleEnrollment?.course?.title ?? '',
         attendancePercentage: studentAttendance.length
           ? Math.round((attended / studentAttendance.length) * 100)
           : 0,

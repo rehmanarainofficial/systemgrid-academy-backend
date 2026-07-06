@@ -1,8 +1,10 @@
 import {
   IsEmail,
+  IsDateString,
   IsIn,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   MaxLength,
   MinLength,
@@ -18,6 +20,10 @@ export class UpdateAdminStudentDto {
   @IsOptional()
   @IsEmail()
   email?: string;
+
+  @IsOptional()
+  @IsUUID()
+  emailVerificationApplicationId?: string;
 
   @IsOptional()
   @IsString()
@@ -52,6 +58,38 @@ export class UpdateAdminStudentDto {
   @IsOptional()
   @IsString()
   educationLevel?: string;
+
+  @IsOptional()
+  @IsString()
+  courseInterest?: string;
+
+  @IsOptional()
+  @IsString()
+  preferredMode?: string;
+
+  @IsOptional()
+  @IsString()
+  preferredTiming?: string;
+
+  @IsOptional()
+  @IsString()
+  preferredDays?: string;
+
+  @IsOptional()
+  @IsString()
+  admissionMessage?: string;
+
+  @IsOptional()
+  @IsDateString()
+  dateOfBirth?: string;
+
+  @IsOptional()
+  @IsIn(['male', 'female', 'prefer_not_to_say'])
+  gender?: string;
+
+  @IsOptional()
+  @IsIn(['website', 'referral', 'walk_in', 'social_media', 'admin'])
+  source?: string;
 
   @IsOptional()
   @IsIn(['active', 'inactive', 'graduated', 'dropped'])

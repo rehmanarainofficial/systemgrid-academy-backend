@@ -21,6 +21,7 @@ import { AdminStudentsQueryDto } from './dto/admin-students-query.dto';
 import { CreateAdminStudentDto } from './dto/create-admin-student.dto';
 import { EnrollAdminStudentDto } from './dto/enroll-admin-student.dto';
 import { ResetStudentPasswordDto } from './dto/reset-student-password.dto';
+import { UpdateAdminEnrollmentDto } from './dto/update-admin-enrollment.dto';
 import { UpdateAdminStudentDto } from './dto/update-admin-student.dto';
 import { UpdateStudentStatusDto } from './dto/update-student-status.dto';
 import { StudentsService } from './students.service';
@@ -78,6 +79,25 @@ export class StudentsController {
     @Req() request: AdminRequest,
   ) {
     return this.studentsService.enroll(id, dto, request.user.id);
+  }
+
+  @Patch(':id/enrollments/:enrollmentId')
+  updateEnrollment(
+    @Param('id') id: string,
+    @Param('enrollmentId') enrollmentId: string,
+    @Body() dto: UpdateAdminEnrollmentDto,
+    @Req() request: AdminRequest,
+  ) {
+    return this.studentsService.updateEnrollment(id, enrollmentId, dto, request.user.id);
+  }
+
+  @Delete(':id/enrollments/:enrollmentId')
+  unenroll(
+    @Param('id') id: string,
+    @Param('enrollmentId') enrollmentId: string,
+    @Req() request: AdminRequest,
+  ) {
+    return this.studentsService.unenroll(id, enrollmentId, request.user.id);
   }
 
   @Post(':id/reset-password')

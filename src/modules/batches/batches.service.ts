@@ -69,7 +69,7 @@ export class BatchesService {
   async findDetail(id: string) {
     const batch = await this.batch(id);
     const [enrollments, schedules, attendance, assignments, feePlans] = await Promise.all([
-      this.dataSource.getRepository(Enrollment).find({ where: { batch: { id } }, relations: { student: { user: true }, course: true, batch: true }, order: { enrolledAt: 'DESC' } }),
+      this.dataSource.getRepository(Enrollment).find({ where: { batch: { id }, status: In(['pending', 'active', 'completed']) }, relations: { student: { user: true }, course: true, batch: true }, order: { enrolledAt: 'DESC' } }),
       this.dataSource.getRepository(ClassSchedule).find({ where: { batch: { id } }, relations: { lesson: true }, order: { date: 'ASC', startTime: 'ASC' } }),
       this.dataSource.getRepository(Attendance).find({ where: { batch: { id } }, relations: { student: true, classSchedule: true }, order: { date: 'DESC' } }),
       this.dataSource.getRepository(Assignment).find({ where: { batch: { id } } }),
@@ -160,7 +160,7 @@ export class BatchesService {
   async enrollStudent(id: string, dto: EnrollBatchStudentDto, actorId: string) {
     const batch = await this.batch(id);
     const repository = this.dataSource.getRepository(Enrollment);
-    const count = await repository.count({ where: { batch: { id } } });
+    const count = await repository.count({ where: { batch: { id }, status: In(['pending', 'active']) } });
     if (count >= batch.capacity) throw new ConflictException('Batch capacity has been reached');
     const student = await this.dataSource.getRepository(StudentProfile).findOne({ where: { id: dto.studentId, status: 'active' } });
     if (!student) throw new BadRequestException('Active student not found');
@@ -197,7 +197,7 @@ export class BatchesService {
 
   async markAttendance(id: string, dto: MarkBatchAttendanceDto, actorId: string) {
     const batch = await this.batch(id);
-    const enrollmentIds = new Set((await this.dataSource.getRepository(Enrollment).find({ where: { batch: { id } }, relations: { student: true } })).map((item) => item.student.id));
+    const enrollmentIds = new Set((await this.dataSource.getRepository(Enrollment).find({ where: { batch: { id }, status: In(['pending', 'active']) }, relations: { student: true } })).map((item) => item.student.id));
     if (dto.records.some((item) => !enrollmentIds.has(item.studentId))) throw new BadRequestException('Attendance can only be marked for students enrolled in this batch');
     let schedule: ClassSchedule | undefined;
     if (dto.classScheduleId) {
@@ -244,9 +244,9 @@ export class BatchesService {
 
   async updateStatus(id: string, status: 'upcoming' | 'active' | 'completed' | 'cancelled', actorId: string) { const batch = await this.repository.findOne({ where: { id } }); if (!batch) throw new NotFoundException('Batch not found'); batch.status = status; await this.repository.save(batch); await this.log(actorId, 'update_status', id, { status }); return { message: `Batch status updated to ${status}`, status }; }
 
-  async remove(id: string, actorId: string) { const batch = await this.repository.findOne({ where: { id } }); if (!batch) throw new NotFoundException('Batch not found'); const count = await this.dataSource.getRepository(Enrollment).count({ where: { batch: { id } } }); if (count) throw new ConflictException('This batch has enrolled students. Cancel the batch instead.'); await this.repository.remove(batch); await this.log(actorId, 'delete', id, { code: batch.code }); return { message: 'Batch deleted successfully' }; }
+  async remove(id: string, actorId: string) { const batch = await this.repository.findOne({ where: { id } }); if (!batch) throw new NotFoundException('Batch not found'); const repository = this.dataSource.getRepository(Enrollment); const activeCount = await repository.count({ where: { batch: { id }, status: In(['pending', 'active']) } }); if (activeCount) throw new ConflictException('This batch has active or pending students. Cancel the batch instead.'); const totalCount = await repository.count({ where: { batch: { id } } }); if (totalCount) throw new ConflictException('This batch has historical enrollment records. Keep it cancelled/completed instead of deleting it.'); await this.repository.remove(batch); await this.log(actorId, 'delete', id, { code: batch.code }); return { message: 'Batch deleted successfully' }; }
 
-  private async mapBatches(batches: Batch[]) { if (!batches.length) return []; const enrollments = await this.dataSource.getRepository(Enrollment).find({ where: { batch: { id: In(batches.map((item) => item.id)) } }, relations: { batch: true } }); return batches.map((batch) => ({ id: batch.id, title: batch.title, code: batch.code, courseId: batch.course.id, courseTitle: batch.course.title, instructorId: batch.instructor?.id ?? '', instructorName: batch.instructor?.name ?? '', startDate: batch.startDate, endDate: batch.endDate ?? '', classDays: batch.classDays, startTime: batch.startTime?.slice(0, 5) ?? '', endTime: batch.endTime?.slice(0, 5) ?? '', mode: batch.mode, capacity: batch.capacity, studentsCount: enrollments.filter((item) => item.batch?.id === batch.id).length, status: batch.status, meetingUrl: batch.meetingUrl ?? '', location: batch.location ?? '', enrollmentNote: batch.enrollmentNote ?? '', createdAt: batch.createdAt, updatedAt: batch.updatedAt })); }
+  private async mapBatches(batches: Batch[]) { if (!batches.length) return []; const enrollments = await this.dataSource.getRepository(Enrollment).find({ where: { batch: { id: In(batches.map((item) => item.id)) }, status: In(['pending', 'active']) }, relations: { batch: true } }); return batches.map((batch) => ({ id: batch.id, title: batch.title, code: batch.code, courseId: batch.course.id, courseTitle: batch.course.title, instructorId: batch.instructor?.id ?? '', instructorName: batch.instructor?.name ?? '', startDate: batch.startDate, endDate: batch.endDate ?? '', classDays: batch.classDays, startTime: batch.startTime?.slice(0, 5) ?? '', endTime: batch.endTime?.slice(0, 5) ?? '', mode: batch.mode, capacity: batch.capacity, studentsCount: enrollments.filter((item) => item.batch?.id === batch.id).length, status: batch.status, meetingUrl: batch.meetingUrl ?? '', location: batch.location ?? '', enrollmentNote: batch.enrollmentNote ?? '', createdAt: batch.createdAt, updatedAt: batch.updatedAt })); }
   private async batch(id: string) { const item = await this.repository.findOne({ where: { id }, relations: { course: true, instructor: true } }); if (!item) throw new NotFoundException('Batch not found'); return item; }
   private async course(id: string) { const item = await this.dataSource.getRepository(Course).findOne({ where: { id } }); if (!item) throw new BadRequestException('Course not found'); return item; }
   private async instructor(id?: string) { if (!id) return undefined; const item = await this.dataSource.getRepository(Instructor).findOne({ where: { id, isActive: true } }); if (!item) throw new BadRequestException('Instructor not found'); return item; }

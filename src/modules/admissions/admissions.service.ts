@@ -435,6 +435,8 @@ export class AdmissionsService {
       preferredTiming: application.preferredTiming,
       preferredDays: application.preferredDays,
       admissionMessage: application.message,
+      emailVerified: application.emailVerified,
+      emailVerifiedAt: application.emailVerifiedAt,
       source: application.referralCodeApplied ? 'referral' : 'website',
       status: 'active',
     }));

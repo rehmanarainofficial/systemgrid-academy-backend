@@ -12,9 +12,17 @@ import {
   Batch,
   Course,
   CourseCategory,
+  CourseFAQ,
   CourseModule,
+  CourseOutlineModule,
+  CourseOutcome,
+  CourseProject,
+  CourseQuarter,
+  CourseTool,
+  CourseTopic,
   Enrollment,
   Lesson,
+  Offer,
   User,
 } from '../../database/entities';
 import { AdminCoursesQueryDto } from './dto/admin-courses-query.dto';
@@ -40,22 +48,98 @@ export class CoursesService {
       : { isPublished: true };
     const [items, total] = await this.coursesRepository.findAndCount({
       where,
-      relations: { category: true },
+      relations: { category: true, tools: true },
       order: { isFeatured: 'DESC', createdAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
     });
-    return { items, meta: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) } };
+    return {
+      items: items.map((course) => this.mapPublicCourseListItem(course)),
+      meta: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
+    };
   }
 
   async findPublicCourseBySlug(slug: string) {
     const course = await this.coursesRepository.findOne({
       where: { slug, isPublished: true },
-      relations: { category: true, modules: true, lessons: true },
-      order: { modules: { sortOrder: 'ASC' }, lessons: { sortOrder: 'ASC' } },
+      relations: { category: true },
     });
     if (!course) throw new NotFoundException('Course not found');
-    return course;
+
+    const [
+      offers,
+      relatedCourses,
+      quarters,
+      outlineModules,
+      topics,
+      tools,
+      projects,
+      outcomes,
+      faqs,
+    ] = await Promise.all([
+      this.dataSource.getRepository(Offer).find({ where: { isActive: true } }),
+      this.coursesRepository.find({
+        where: { isPublished: true },
+        relations: { category: true },
+        order: { isFeatured: 'DESC', createdAt: 'DESC' },
+        take: 8,
+      }),
+      this.dataSource.getRepository(CourseQuarter).find({
+        where: { course: { id: course.id } },
+        order: { sortOrder: 'ASC' },
+      }),
+      this.dataSource.getRepository(CourseOutlineModule).find({
+        where: { course: { id: course.id } },
+        relations: { quarter: true },
+        order: { sortOrder: 'ASC' },
+      }),
+      this.dataSource.getRepository(CourseTopic).find({
+        where: { course: { id: course.id } },
+        relations: { module: true },
+        order: { sortOrder: 'ASC' },
+      }),
+      this.dataSource.getRepository(CourseTool).find({
+        where: { course: { id: course.id } },
+        order: { sortOrder: 'ASC' },
+      }),
+      this.dataSource.getRepository(CourseProject).find({
+        where: { course: { id: course.id } },
+        order: { sortOrder: 'ASC' },
+      }),
+      this.dataSource.getRepository(CourseOutcome).find({
+        where: { course: { id: course.id } },
+        order: { sortOrder: 'ASC' },
+      }),
+      this.dataSource.getRepository(CourseFAQ).find({
+        where: { course: { id: course.id } },
+        order: { sortOrder: 'ASC' },
+      }),
+    ]);
+
+    const topicsByModuleId = new Map<string, CourseTopic[]>();
+    for (const topic of topics) {
+      const moduleId = topic.module.id;
+      topicsByModuleId.set(moduleId, [...(topicsByModuleId.get(moduleId) ?? []), topic]);
+    }
+
+    const modulesByQuarterId = new Map<string, CourseOutlineModule[]>();
+    for (const module of outlineModules) {
+      module.topics = topicsByModuleId.get(module.id) ?? [];
+      const quarterId = module.quarter.id;
+      modulesByQuarterId.set(quarterId, [...(modulesByQuarterId.get(quarterId) ?? []), module]);
+    }
+
+    course.quarters = quarters.map((quarter) => ({
+      ...quarter,
+      modules: modulesByQuarterId.get(quarter.id) ?? [],
+      topics: [],
+    }));
+    course.tools = tools;
+    course.projects = projects;
+    course.outcomes = outcomes;
+    course.faqs = faqs;
+
+    return this.mapPublicCourseDetail(course, offers, relatedCourses.filter((item) => item.id !== course.id).slice(0, 3));
   }
 
   async findAdminCourses(query: AdminCoursesQueryDto) {
@@ -201,10 +285,11 @@ export class CoursesService {
   private async attachCourseMetrics(courses: Course[]) {
     if (!courses.length) return [];
     const ids = courses.map(({ id }) => id);
-    const [enrollments, batches, modules, lessons] = await Promise.all([
+    const [enrollments, batches, modules, outlineModules, lessons] = await Promise.all([
       this.dataSource.getRepository(Enrollment).find({ where: { course: { id: In(ids) } }, relations: { course: true } }),
       this.dataSource.getRepository(Batch).find({ where: { course: { id: In(ids) } }, relations: { course: true } }),
       this.dataSource.getRepository(CourseModule).find({ where: { course: { id: In(ids) } }, relations: { course: true } }),
+      this.dataSource.getRepository(CourseOutlineModule).find({ where: { course: { id: In(ids) } }, relations: { course: true }, order: { sortOrder: 'ASC' } }),
       this.dataSource.getRepository(Lesson).find({ where: { course: { id: In(ids) } }, relations: { course: true } }),
     ]);
     return courses.map((course) => ({
@@ -218,19 +303,24 @@ export class CoursesService {
       category: course.category ? { id: course.category.id, name: course.category.name, slug: course.category.slug } : null,
       level: course.level,
       duration: course.duration,
+      durationMonths: course.durationMonths ?? this.durationMonths(course),
+      durationLabel: course.durationLabel ?? `${course.durationMonths ?? this.durationMonths(course)} Months`,
       durationUnit: course.durationUnit,
       mode: course.mode,
       language: course.language,
+      monthlyFee: Number(course.monthlyFee ?? 5000),
       fee: Number(course.fee),
       discountFee: course.discountFee === undefined || course.discountFee === null ? null : Number(course.discountFee),
       isFeatured: course.isFeatured,
       isPublished: course.isPublished,
       enrollmentsCount: enrollments.filter((item) => item.course.id === course.id).length,
       batchesCount: batches.filter((item) => item.course.id === course.id).length,
-      modulesCount: modules.filter((item) => item.course.id === course.id).length,
+      modulesCount: Math.max(
+        modules.filter((item) => item.course.id === course.id).length,
+        outlineModules.filter((item) => item.course.id === course.id).length,
+      ),
       lessonsCount: lessons.filter((item) => item.course.id === course.id).length,
-      modules: modules
-        .filter((item) => item.course.id === course.id)
+      modules: this.adminCourseModules(course.id, modules, outlineModules)
         .sort((a, b) => a.sortOrder - b.sortOrder)
         .map((item) => ({
           id: item.id,
@@ -241,6 +331,19 @@ export class CoursesService {
       createdAt: course.createdAt,
       updatedAt: course.updatedAt,
     }));
+  }
+
+  private adminCourseModules(courseId: string, modules: CourseModule[], outlineModules: CourseOutlineModule[]): Array<{ id?: string; title: string; description?: string; sortOrder: number }> {
+    const legacy = modules.filter((item) => item.course.id === courseId);
+    if (legacy.length) return legacy;
+    return outlineModules
+      .filter((item) => item.course.id === courseId)
+      .map((item) => ({
+        id: undefined,
+        title: item.title,
+        description: item.description,
+        sortOrder: item.sortOrder,
+      }));
   }
 
   private normalizeSlug(value: string) {
@@ -319,5 +422,146 @@ export class CoursesService {
       recordId,
       metadata,
     });
+  }
+
+  private mapPublicCourseListItem(course: Course) {
+    return {
+      id: course.id,
+      title: course.title,
+      slug: course.slug,
+      shortDescription: course.shortDescription,
+      description: course.description ?? '',
+      thumbnail: course.thumbnail ?? '',
+      techStack: this.publicToolNames(course),
+      category: course.category ? { id: course.category.id, name: course.category.name, slug: course.category.slug } : null,
+      level: course.level,
+      duration: course.duration,
+      durationMonths: course.durationMonths ?? this.durationMonths(course),
+      durationLabel: course.durationLabel ?? `${course.durationMonths ?? this.durationMonths(course)} Months`,
+      durationUnit: course.durationUnit,
+      mode: course.mode,
+      language: course.language,
+      monthlyFee: Number(course.monthlyFee ?? 5000),
+      fee: Number(course.fee),
+      discountFee: course.discountFee === undefined || course.discountFee === null ? null : Number(course.discountFee),
+      isFeatured: course.isFeatured,
+      isPublished: course.isPublished,
+    };
+  }
+
+  private mapPublicCourseDetail(course: Course, offers: Offer[], relatedCourses: Course[]) {
+    const durationMonths = course.durationMonths ?? this.durationMonths(course);
+    const monthlyFee = Number(course.monthlyFee ?? 5000);
+    const quarterlyGross = monthlyFee * 3;
+    const quarterlyDiscountPercentage = this.offerPercentage(offers, 'quarterly-discount', 20);
+    const fullCourseGross = durationMonths * monthlyFee;
+    const fullCourseDiscountPercentage = this.offerPercentage(offers, 'full-course-discount', 35);
+    return {
+      course: {
+        id: course.id,
+        title: course.title,
+        slug: course.slug,
+        shortDescription: course.shortDescription,
+        description: course.description ?? '',
+        thumbnail: course.thumbnail ?? '',
+        category: course.category ? { id: course.category.id, name: course.category.name, slug: course.category.slug } : null,
+        level: course.level,
+        durationMonths,
+        durationLabel: course.durationLabel ?? `${durationMonths} Months`,
+        duration: course.duration,
+        durationUnit: course.durationUnit,
+        mode: course.mode,
+        language: course.language,
+        monthlyFee,
+        fee: Number(course.fee),
+        discountFee: course.discountFee === undefined || course.discountFee === null ? null : Number(course.discountFee),
+        isFeatured: course.isFeatured,
+        isPublished: course.isPublished,
+      },
+      pricing: {
+        monthlyFee,
+        monthlyAmount: monthlyFee,
+        quarterlyGross,
+        quarterlyDiscountPercentage,
+        quarterlyFinal: Math.max(0, quarterlyGross - Math.round(quarterlyGross * quarterlyDiscountPercentage / 100)),
+        fullCourseGross,
+        fullCourseDiscountPercentage,
+        fullCourseFinal: Math.max(0, fullCourseGross - Math.round(fullCourseGross * fullCourseDiscountPercentage / 100)),
+        quarterlyAvailable: durationMonths >= 6,
+        referralNewStudentDiscount: this.offerAmount(offers, 'referral-new-student-discount', 500),
+        referrerReward: 1000,
+        scholarshipDiscountPercentage: this.offerPercentage(offers, 'scholarship-discount', 50),
+        scholarshipRequiredScore: 80,
+      },
+      quarters: (course.quarters ?? [])
+        .slice()
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .map((quarter) => ({
+          id: quarter.id,
+          quarterNumber: quarter.quarterNumber,
+          title: quarter.title,
+          subtitle: quarter.subtitle ?? '',
+          description: quarter.description ?? '',
+          durationMonths: quarter.durationMonths,
+          modules: (quarter.modules ?? [])
+            .slice()
+            .sort((a, b) => a.sortOrder - b.sortOrder)
+            .map((module) => ({
+              id: module.id,
+              title: module.title,
+              description: module.description ?? '',
+              topics: (module.topics ?? [])
+                .slice()
+                .sort((a, b) => a.sortOrder - b.sortOrder)
+                .map((topic) => ({
+                  id: topic.id,
+                  title: topic.title,
+                  description: topic.description ?? '',
+                  level: topic.level,
+                })),
+            })),
+        })),
+      tools: (course.tools ?? []).slice().sort((a, b) => a.sortOrder - b.sortOrder).map((tool) => ({
+        id: tool.id,
+        name: tool.name,
+        type: tool.type ?? '',
+        icon: tool.icon ?? '',
+      })),
+      projects: (course.projects ?? []).slice().sort((a, b) => a.sortOrder - b.sortOrder).map((project) => ({
+        id: project.id,
+        title: project.title,
+        description: project.description ?? '',
+        quarterNumber: project.quarterNumber ?? null,
+        skills: project.skills ?? [],
+      })),
+      outcomes: (course.outcomes ?? []).slice().sort((a, b) => a.sortOrder - b.sortOrder).map((outcome) => ({
+        id: outcome.id,
+        title: outcome.title,
+        description: outcome.description ?? '',
+      })),
+      faqs: (course.faqs ?? []).slice().sort((a, b) => a.sortOrder - b.sortOrder).map((faq) => ({
+        id: faq.id,
+        question: faq.question,
+        answer: faq.answer,
+      })),
+      relatedCourses: relatedCourses.map((item) => this.mapPublicCourseListItem(item)),
+    };
+  }
+
+  private publicToolNames(course: Course) {
+    const tools = (course.tools ?? []).slice().sort((a, b) => a.sortOrder - b.sortOrder).map((tool) => tool.name);
+    return tools.length ? tools : course.techStack ?? [];
+  }
+
+  private durationMonths(course: Course) {
+    return course.durationUnit === 'months' ? Math.max(1, course.duration) : Math.max(1, Math.ceil(course.duration / 4));
+  }
+
+  private offerPercentage(offers: Offer[], slug: string, fallback: number) {
+    return Number(offers.find((offer) => offer.slug === slug)?.discountPercentage ?? fallback);
+  }
+
+  private offerAmount(offers: Offer[], slug: string, fallback: number) {
+    return Number(offers.find((offer) => offer.slug === slug)?.discountAmount ?? fallback);
   }
 }

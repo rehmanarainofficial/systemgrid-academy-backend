@@ -371,6 +371,12 @@ export class StudentProfile {
   @Column({ name: 'admission_message', type: 'text', nullable: true })
   admissionMessage?: string;
 
+  @Column({ name: 'email_verified', default: false })
+  emailVerified: boolean;
+
+  @Column({ name: 'email_verified_at', type: 'timestamptz', nullable: true })
+  emailVerifiedAt?: Date;
+
   @Column({ name: 'source', type: 'enum', enum: StudentSourceEnum, default: StudentSourceEnum.Website })
   source: StudentSource;
 
@@ -485,6 +491,12 @@ export class Course {
   @Column({ name: 'duration', default: 12 })
   duration: number;
 
+  @Column({ name: 'duration_months', type: 'integer', default: 3 })
+  durationMonths: number;
+
+  @Column({ name: 'duration_label', nullable: true })
+  durationLabel?: string;
+
   @Column({ name: 'duration_unit', type: 'enum', enum: DurationUnitEnum, default: DurationUnitEnum.Weeks })
   durationUnit: DurationUnit;
 
@@ -512,6 +524,27 @@ export class Course {
   @OneToMany(() => CourseModule, (module) => module.course)
   modules: Relation<CourseModule[]>;
 
+  @OneToMany(() => CourseQuarter, (quarter) => quarter.course)
+  quarters: Relation<CourseQuarter[]>;
+
+  @OneToMany(() => CourseOutlineModule, (module) => module.course)
+  outlineModules: Relation<CourseOutlineModule[]>;
+
+  @OneToMany(() => CourseTopic, (topic) => topic.course)
+  topics: Relation<CourseTopic[]>;
+
+  @OneToMany(() => CourseTool, (tool) => tool.course)
+  tools: Relation<CourseTool[]>;
+
+  @OneToMany(() => CourseProject, (project) => project.course)
+  projects: Relation<CourseProject[]>;
+
+  @OneToMany(() => CourseOutcome, (outcome) => outcome.course)
+  outcomes: Relation<CourseOutcome[]>;
+
+  @OneToMany(() => CourseFAQ, (faq) => faq.course)
+  faqs: Relation<CourseFAQ[]>;
+
   @OneToMany(() => Lesson, (lesson) => lesson.course)
   lessons: Relation<Lesson[]>;
 
@@ -535,6 +568,217 @@ export class Course {
 
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
+}
+
+@Entity('course_quarters')
+@Index('idx_course_quarters_course_id', ['course'])
+@Index('idx_course_quarters_sort_order', ['sortOrder'])
+@Unique('uq_course_quarters_course_number', ['course', 'quarterNumber'])
+export class CourseQuarter {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @ManyToOne(() => Course, (course) => course.quarters, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'course_id' })
+  course: Relation<Course>;
+
+  @Column({ name: 'quarter_number', type: 'integer' })
+  quarterNumber: number;
+
+  @Column({ name: 'title' })
+  title: string;
+
+  @Column({ name: 'subtitle', nullable: true })
+  subtitle?: string;
+
+  @Column({ name: 'description', type: 'text', nullable: true })
+  description?: string;
+
+  @Column({ name: 'duration_months', type: 'integer', default: 3 })
+  durationMonths: number;
+
+  @Column({ name: 'sort_order', default: 0 })
+  sortOrder: number;
+
+  @OneToMany(() => CourseOutlineModule, (module) => module.quarter)
+  modules: Relation<CourseOutlineModule[]>;
+
+  @OneToMany(() => CourseTopic, (topic) => topic.quarter)
+  topics: Relation<CourseTopic[]>;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
+}
+
+@Entity('course_outline_modules')
+@Index('idx_course_outline_modules_course_id', ['course'])
+@Index('idx_course_outline_modules_quarter_id', ['quarter'])
+@Index('idx_course_outline_modules_sort_order', ['sortOrder'])
+export class CourseOutlineModule {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @ManyToOne(() => Course, (course) => course.outlineModules, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'course_id' })
+  course: Relation<Course>;
+
+  @ManyToOne(() => CourseQuarter, (quarter) => quarter.modules, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'quarter_id' })
+  quarter: Relation<CourseQuarter>;
+
+  @Column({ name: 'title' })
+  title: string;
+
+  @Column({ name: 'description', type: 'text', nullable: true })
+  description?: string;
+
+  @Column({ name: 'sort_order', default: 0 })
+  sortOrder: number;
+
+  @OneToMany(() => CourseTopic, (topic) => topic.module)
+  topics: Relation<CourseTopic[]>;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
+}
+
+@Entity('course_topics')
+@Index('idx_course_topics_course_id', ['course'])
+@Index('idx_course_topics_quarter_id', ['quarter'])
+@Index('idx_course_topics_module_id', ['module'])
+@Index('idx_course_topics_sort_order', ['sortOrder'])
+export class CourseTopic {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @ManyToOne(() => Course, (course) => course.topics, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'course_id' })
+  course: Relation<Course>;
+
+  @ManyToOne(() => CourseQuarter, (quarter) => quarter.topics, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'quarter_id' })
+  quarter: Relation<CourseQuarter>;
+
+  @ManyToOne(() => CourseOutlineModule, (module) => module.topics, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'module_id' })
+  module: Relation<CourseOutlineModule>;
+
+  @Column({ name: 'title' })
+  title: string;
+
+  @Column({ name: 'description', type: 'text', nullable: true })
+  description?: string;
+
+  @Column({ name: 'level', default: 'foundation' })
+  level: string;
+
+  @Column({ name: 'sort_order', default: 0 })
+  sortOrder: number;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
+}
+
+@Entity('course_tools')
+@Index('idx_course_tools_course_id', ['course'])
+@Index('idx_course_tools_sort_order', ['sortOrder'])
+export class CourseTool {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @ManyToOne(() => Course, (course) => course.tools, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'course_id' })
+  course: Relation<Course>;
+
+  @Column({ name: 'name' })
+  name: string;
+
+  @Column({ name: 'type', nullable: true })
+  type?: string;
+
+  @Column({ name: 'icon', nullable: true })
+  icon?: string;
+
+  @Column({ name: 'sort_order', default: 0 })
+  sortOrder: number;
+}
+
+@Entity('course_projects')
+@Index('idx_course_projects_course_id', ['course'])
+@Index('idx_course_projects_sort_order', ['sortOrder'])
+export class CourseProject {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @ManyToOne(() => Course, (course) => course.projects, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'course_id' })
+  course: Relation<Course>;
+
+  @Column({ name: 'title' })
+  title: string;
+
+  @Column({ name: 'description', type: 'text', nullable: true })
+  description?: string;
+
+  @Column({ name: 'quarter_number', type: 'integer', nullable: true })
+  quarterNumber?: number;
+
+  @Column({ name: 'skills', type: 'simple-array', nullable: true })
+  skills?: string[];
+
+  @Column({ name: 'sort_order', default: 0 })
+  sortOrder: number;
+}
+
+@Entity('course_outcomes')
+@Index('idx_course_outcomes_course_id', ['course'])
+@Index('idx_course_outcomes_sort_order', ['sortOrder'])
+export class CourseOutcome {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @ManyToOne(() => Course, (course) => course.outcomes, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'course_id' })
+  course: Relation<Course>;
+
+  @Column({ name: 'title' })
+  title: string;
+
+  @Column({ name: 'description', type: 'text', nullable: true })
+  description?: string;
+
+  @Column({ name: 'sort_order', default: 0 })
+  sortOrder: number;
+}
+
+@Entity('course_faqs')
+@Index('idx_course_faqs_course_id', ['course'])
+@Index('idx_course_faqs_sort_order', ['sortOrder'])
+export class CourseFAQ {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @ManyToOne(() => Course, (course) => course.faqs, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'course_id' })
+  course: Relation<Course>;
+
+  @Column({ name: 'question' })
+  question: string;
+
+  @Column({ name: 'answer', type: 'text' })
+  answer: string;
+
+  @Column({ name: 'sort_order', default: 0 })
+  sortOrder: number;
 }
 
 @Entity('course_modules')

@@ -6,6 +6,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   MaxLength,
   MinLength,
@@ -30,15 +31,20 @@ class InitialEnrollmentDto {
 export class CreateAdminStudentDto {
   @IsString()
   @MinLength(2)
-  @MaxLength(120)
+  @MaxLength(50)
+  @Matches(/^[A-Za-z]+(?: [A-Za-z]+)*$/, {
+    message: 'Name may contain letters and single spaces only',
+  })
   name: string;
 
   @IsEmail()
   email: string;
 
+  @IsUUID()
+  emailVerificationApplicationId: string;
+
   @IsString()
-  @MinLength(7)
-  @MaxLength(30)
+  @Matches(/^03\d{9}$/, { message: 'Phone must be an 11-digit Pakistan mobile number' })
   phone: string;
 
   @IsString()
@@ -48,33 +54,60 @@ export class CreateAdminStudentDto {
   })
   password: string;
 
-  @IsOptional()
   @IsString()
-  city?: string;
+  @MinLength(2)
+  @MaxLength(60)
+  city: string;
+
+  @IsString()
+  @MinLength(2)
+  @MaxLength(50)
+  @Matches(/^[A-Za-z]+(?: [A-Za-z]+)*$/, {
+    message: 'Guardian name may contain letters and single spaces only',
+  })
+  guardianName: string;
+
+  @IsString()
+  @Matches(/^03\d{9}$/, { message: 'Guardian phone must be an 11-digit Pakistan mobile number' })
+  guardianPhone: string;
+
+  @IsString()
+  @MinLength(3)
+  @MaxLength(220)
+  address: string;
+
+  @IsString()
+  @MinLength(2)
+  @MaxLength(80)
+  educationLevel: string;
 
   @IsOptional()
   @IsString()
-  guardianName?: string;
+  courseInterest?: string;
+
+  @IsIn(['online', 'physical'])
+  preferredMode: string;
+
+  @IsString()
+  @MinLength(2)
+  @MaxLength(60)
+  preferredTiming: string;
+
+  @IsString()
+  @MinLength(2)
+  @MaxLength(80)
+  preferredDays: string;
 
   @IsOptional()
   @IsString()
-  guardianPhone?: string;
-
-  @IsOptional()
-  @IsString()
-  address?: string;
-
-  @IsOptional()
-  @IsString()
-  educationLevel?: string;
+  admissionMessage?: string;
 
   @IsOptional()
   @IsDateString()
   dateOfBirth?: string;
 
-  @IsOptional()
-  @IsIn(['male', 'female', 'other', 'prefer_not_to_say'])
-  gender?: string;
+  @IsIn(['male', 'female', 'prefer_not_to_say'])
+  gender: string;
 
   @IsOptional()
   @IsIn(['website', 'referral', 'walk_in', 'social_media', 'admin'])
@@ -88,8 +121,7 @@ export class CreateAdminStudentDto {
   @IsIn(['active', 'inactive', 'graduated', 'dropped'])
   status: 'active' | 'inactive' | 'graduated' | 'dropped' = 'active';
 
-  @IsOptional()
   @ValidateNested()
   @Type(() => InitialEnrollmentDto)
-  enrollment?: InitialEnrollmentDto;
+  enrollment: InitialEnrollmentDto;
 }

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import {
   Attendance,
+  AdmissionApplication,
   Assignment,
   AuditLog,
   Batch,
@@ -19,6 +20,7 @@ import { StudentsService } from './students.service';
   imports: [
     TypeOrmModule.forFeature([
       User,
+      AdmissionApplication,
       StudentProfile,
       Course,
       Batch,
