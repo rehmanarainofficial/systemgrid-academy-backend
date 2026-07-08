@@ -1,10 +1,14 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { AdmissionsService } from './admissions.service';
+import type { UploadedFileData } from '../uploads/uploads.service';
 import {
   CreatePaymentIntentDto,
   GatewayCallbackDto,
   StartAdmissionDto,
   SubmitAdmissionDto,
+  SubmitPaymentProofDto,
+  ValidateReferralDto,
   VerifyAdmissionEmailDto,
 } from './dto/admission.dto';
 import { PricingCalculateDto } from './dto/pricing.dto';
@@ -16,6 +20,11 @@ export class PublicAdmissionsController {
   @Post('public/pricing/calculate')
   calculatePricing(@Body() dto: PricingCalculateDto) {
     return this.admissionsService.calculatePricing(dto);
+  }
+
+  @Post('public/referral/validate')
+  validateReferral(@Body() dto: ValidateReferralDto) {
+    return this.admissionsService.validateReferralCode(dto.code);
   }
 
   @Post('public/admissions/send-email-otp')
@@ -36,6 +45,12 @@ export class PublicAdmissionsController {
   @Post('public/admissions/submit')
   submit(@Body() dto: SubmitAdmissionDto) {
     return this.admissionsService.submit(dto);
+  }
+
+  @Post('public/admissions/payment-proof')
+  @UseInterceptors(FileInterceptor('proof', { limits: { fileSize: 10 * 1024 * 1024 } }))
+  submitPaymentProof(@UploadedFile() file: UploadedFileData, @Body() dto: SubmitPaymentProofDto) {
+    return this.admissionsService.submitPaymentProof(dto, file);
   }
 
   @Post('payments/intents')

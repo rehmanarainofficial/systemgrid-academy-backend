@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
 import { Brackets, DataSource, EntityManager, In, Not, Repository } from 'typeorm';
 import { UserRole } from '../../common/enums/user-role.enum';
+import { ensureWalletAndReferralCode } from '../../common/referral/referral.util';
 import {
   Attendance,
   AdmissionApplication,
@@ -333,6 +334,8 @@ export class StudentsService {
         student.courseInterest = course.title;
         await manager.save(student);
       }
+      // Give every new student a wallet + their own referral code up front.
+      await ensureWalletAndReferralCode(manager, student, user.name);
       await manager.save(
         manager.create(AuditLog, {
           user: { id: actorId } as User,

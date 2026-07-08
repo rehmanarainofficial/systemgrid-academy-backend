@@ -1708,6 +1708,19 @@ export class AdmissionApplication {
   @Column({ name: 'message', type: 'text', nullable: true })
   message?: string;
 
+  // Manual/offline payment proof submitted by the applicant (no gateway).
+  @Column({ name: 'payment_reference', nullable: true })
+  paymentReference?: string;
+
+  @Column({ name: 'payment_sender_number', nullable: true })
+  paymentSenderNumber?: string;
+
+  @Column({ name: 'payment_proof_url', type: 'text', nullable: true })
+  paymentProofUrl?: string;
+
+  @Column({ name: 'payment_proof_submitted_at', type: 'timestamptz', nullable: true })
+  paymentProofSubmittedAt?: Date;
+
   @ManyToOne(() => User, (user) => user.assignedAdmissionApplications, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'assigned_to_id' })
   assignedTo?: Relation<User>;

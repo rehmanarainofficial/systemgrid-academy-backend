@@ -9,7 +9,7 @@ import {
   MaxLength,
   Matches,
 } from 'class-validator';
-import type { Gender, PaymentGateway, PricingPlanType } from '../../../database/entities';
+import type { Gender, PaymentGateway, PaymentMethod, PricingPlanType } from '../../../database/entities';
 
 export class StartAdmissionDto {
   @IsEmail()
@@ -124,6 +124,46 @@ export class GatewayCallbackDto {
   @IsOptional()
   @IsString()
   secureHash?: string;
+}
+
+export class ValidateReferralDto {
+  @IsString()
+  @MaxLength(40)
+  code: string;
+}
+
+export class SubmitPaymentProofDto {
+  @IsUUID()
+  applicationId: string;
+
+  @IsEmail()
+  @MaxLength(120)
+  email: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  transactionId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  senderNumber?: string;
+}
+
+export class ApproveOfflinePaymentDto {
+  @IsIn(['cash', 'bank_transfer', 'easypaisa', 'jazzcash', 'card'])
+  method: PaymentMethod;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  transactionId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  notes?: string;
 }
 
 export class AdminAdmissionsQueryDto {

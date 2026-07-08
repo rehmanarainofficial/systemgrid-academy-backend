@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { DataSource } from 'typeorm';
+import { DataSource, In } from 'typeorm';
 import {
   academyEntities,
   Course,
@@ -34,6 +34,7 @@ type CourseSeed = {
 
 const categories = [
   'Development',
+  'Data',
   'AI and Automation',
   'Design',
   'Marketing',
@@ -261,30 +262,6 @@ const webDevelopmentQuarters: QuarterSeed[] = [
 ];
 
 const courses: CourseSeed[] = [
-  {
-    category: 'Development',
-    title: 'Web Development Bootcamp',
-    slug: 'web-development',
-    shortDescription:
-      'Learn frontend, backend, database, dashboards, and deployment through real projects.',
-    description:
-      'A complete nine-month web development path from frontend foundations to full-stack portfolio projects.',
-    durationMonths: 9,
-    tools: [
-      'HTML',
-      'CSS',
-      'JavaScript',
-      'Tailwind CSS',
-      'React',
-      'Redux Toolkit',
-      'Next.js',
-      'Firebase',
-      'Node.js',
-      'Express.js',
-      'MongoDB',
-    ],
-    quarters: webDevelopmentQuarters,
-  },
   {
     category: 'Development',
     title: 'React Native App Development',
@@ -574,6 +551,155 @@ const courses: CourseSeed[] = [
       ],
     ],
   ),
+  {
+    category: 'Data',
+    title: 'Data Science and Analytics',
+    slug: 'data-science-and-analytics',
+    shortDescription:
+      'Master Python, statistics, analytics, machine learning, dashboards, and portfolio-ready data projects.',
+    description:
+      'A twelve-month data science and analytics roadmap built around real datasets, business insights, ML models, dashboards, and a capstone portfolio.',
+    durationMonths: 12,
+    level: 'intermediate',
+    tools: [
+      'Python',
+      'NumPy',
+      'Pandas',
+      'Matplotlib',
+      'Seaborn',
+      'Scikit-learn',
+      'SQL',
+      'Power BI',
+      'Jupyter Notebook',
+      'GitHub',
+    ],
+    quarters: [
+      q(
+        'Python, Statistics, and Data Foundations',
+        'Python programming, statistics thinking, and clean dataset preparation',
+        [
+          'Python fundamentals',
+          'Jupyter Notebook workflow',
+          'NumPy',
+          'Pandas',
+          'Data types and structures',
+          'Descriptive statistics',
+          'Probability basics',
+          'Data cleaning',
+          'Missing value handling',
+          'Outlier detection',
+          'Exploratory data analysis',
+          'Mini project: sales data insight report',
+        ],
+      ),
+      q(
+        'Data Visualization and Business Analytics',
+        'Charts, dashboards, storytelling, SQL, and business decision support',
+        [
+          'Matplotlib',
+          'Seaborn',
+          'Chart selection',
+          'Dashboard planning',
+          'SQL basics',
+          'Joins and aggregations',
+          'Business KPIs',
+          'Cohort analysis',
+          'Power BI fundamentals',
+          'Interactive dashboards',
+          'Data storytelling',
+          'Mini project: business analytics dashboard',
+        ],
+      ),
+      q(
+        'Machine Learning for Data Science',
+        'Feature engineering, model training, evaluation, and practical prediction apps',
+        [
+          'Feature engineering',
+          'Train/test split',
+          'Scikit-learn',
+          'Regression',
+          'Classification',
+          'Clustering basics',
+          'Evaluation metrics',
+          'Model comparison',
+          'Model interpretation',
+          'Data leakage prevention',
+          'Mini project: customer churn prediction',
+        ],
+      ),
+      q(
+        'Portfolio Capstone and Real Data Projects',
+        'End-to-end data science workflow, presentation, deployment basics, and portfolio polish',
+        [
+          'Project scoping',
+          'Dataset sourcing',
+          'Notebook organization',
+          'GitHub portfolio',
+          'Report writing',
+          'Stakeholder presentation',
+          'Dashboard publishing',
+          'Model packaging basics',
+          'Interview case study practice',
+          'Final project: end-to-end data science capstone',
+        ],
+      ),
+    ],
+  },
+  {
+    category: 'Data',
+    title: 'Data Analysis',
+    slug: 'data-analysis',
+    shortDescription:
+      'Learn Excel, SQL, Python, dashboards, reporting, and business analysis with practical datasets.',
+    description:
+      'A six-month data analysis course focused on cleaning data, writing queries, building dashboards, and explaining insights for business decisions.',
+    durationMonths: 6,
+    tools: [
+      'Excel',
+      'SQL',
+      'Python',
+      'Pandas',
+      'Power BI',
+      'Google Sheets',
+      'Looker Studio',
+    ],
+    quarters: [
+      q(
+        'Spreadsheet Analytics and SQL Foundations',
+        'Excel, Google Sheets, SQL queries, data cleaning, and reporting basics',
+        [
+          'Excel formulas',
+          'Pivot tables',
+          'Data validation',
+          'Cleaning messy sheets',
+          'Google Sheets reporting',
+          'SQL basics',
+          'Filtering and sorting',
+          'Joins',
+          'Aggregations',
+          'Case statements',
+          'Mini project: monthly sales report',
+        ],
+      ),
+      q(
+        'Python Analysis and Dashboard Reporting',
+        'Python, Pandas, visualization, Power BI, and insight storytelling',
+        [
+          'Python for analysts',
+          'Pandas',
+          'CSV and Excel import',
+          'Data cleaning workflows',
+          'Grouping and summaries',
+          'Matplotlib basics',
+          'Power BI fundamentals',
+          'Dashboard layout',
+          'Business KPI cards',
+          'Data storytelling',
+          'Final project: business analysis dashboard',
+        ],
+      ),
+    ],
+  },
   {
     category: 'AI and Automation',
     title: 'AI Development and Automation',
@@ -1113,6 +1239,11 @@ async function seed() {
       categoryMap.set(name, category);
     }
 
+    await courseRepo.update(
+      { slug: In(['web-development', 'web-development-bootcamp']) },
+      { isPublished: false, isFeatured: false },
+    );
+
     for (const [courseIndex, seed] of courses.entries()) {
       const category = categoryMap.get(seed.category);
       let course = await courseRepo.findOne({ where: { slug: seed.slug } });
@@ -1391,7 +1522,51 @@ function defaultFaqs(seed: CourseSeed) {
 }
 
 function topicDescription(topic: string, moduleTitle: string) {
-  if (topic.toLowerCase().includes('project'))
+  const topicKey = topic.trim().toLowerCase();
+  const detailedDescriptions: Record<string, string> = {
+    numpy:
+      'Use NumPy arrays for fast numerical calculations, feature matrices, vector operations, and the math layer behind machine-learning datasets.',
+    pandas:
+      'Clean CSV/Excel data, fix missing values, group records, reshape tables, and prepare real datasets before model training.',
+    'scikit-learn':
+      'Train practical regression/classification models, split data correctly, tune basics, and read model metrics with confidence.',
+    'feature engineering':
+      'Convert raw columns into useful model signals such as encoded categories, derived numbers, and cleaned date/text features.',
+    'evaluation metrics':
+      'Understand accuracy, precision, recall, F1, error values, and when each metric should guide a decision.',
+    'react native cli setup':
+      'Create a real native project, connect Android/iOS tooling, run emulators/devices, and understand why this track avoids Expo.',
+    'react navigation':
+      'Build production navigation flows with stacks, tabs, route params, guarded screens, and polished mobile transitions.',
+    'api integration with axios':
+      'Call backend APIs, handle loading/error states, send auth headers, and organize reusable mobile API services.',
+    'tanstack query basics':
+      'Cache server data, refresh screens, handle mutations, and keep mobile UI fast without manual state spaghetti.',
+    'redux toolkit or zustand':
+      'Manage shared app state such as auth, profile, cart, settings, attendance, and fee dashboard data.',
+    'excel formulas':
+      'Build reusable formulas for cleaning, calculating, and checking business data without manual repetition.',
+    'pivot tables':
+      'Summarize large sheets into quick reports by product, month, customer, or region.',
+    'sql basics':
+      'Write queries to fetch exactly the data needed for analysis instead of depending only on exported sheets.',
+    joins:
+      'Combine related tables such as customers, orders, students, fees, and payments into one useful analysis view.',
+    aggregations:
+      'Calculate totals, averages, counts, and grouped summaries that power dashboards and reports.',
+    'power bi fundamentals':
+      'Build interactive dashboards with KPI cards, slicers, charts, and clean report layouts.',
+    'data storytelling':
+      'Turn charts and numbers into clear business recommendations that non-technical people can understand.',
+    'jupyter notebook workflow':
+      'Organize code, notes, charts, and findings in one analysis notebook for review and portfolio presentation.',
+    'descriptive statistics':
+      'Understand mean, median, spread, distribution, and what they reveal about real datasets.',
+    'exploratory data analysis':
+      'Investigate patterns, trends, outliers, and relationships before building dashboards or models.',
+  };
+  if (detailedDescriptions[topicKey]) return detailedDescriptions[topicKey];
+  if (topicKey.includes('project'))
     return 'Apply the quarter skills in a guided project with review and portfolio preparation.';
   return `Learn ${topic.toLowerCase()} inside the ${moduleTitle} module with examples, practice, and review checkpoints.`;
 }

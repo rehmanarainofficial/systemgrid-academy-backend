@@ -11,6 +11,7 @@ import {
   StudentWallet,
   WalletLedger,
 } from '../../database/entities';
+import { UploadsModule } from '../uploads/uploads.module';
 import { AdminAdmissionsController } from './admin-admissions.controller';
 import { AdmissionsService } from './admissions.service';
 import { AdmissionEmailService } from './email.service';
@@ -30,6 +31,7 @@ import { PublicAdmissionsController } from './public-admissions.controller';
       StudentWallet,
       WalletLedger,
     ]),
+    UploadsModule,
   ],
   controllers: [PublicAdmissionsController, AdminAdmissionsController],
   providers: [AdmissionsService, PricingService, AdmissionEmailService],

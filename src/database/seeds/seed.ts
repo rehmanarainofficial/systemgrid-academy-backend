@@ -116,7 +116,7 @@ async function seed() {
     );
   }
 
-  const categoryNames = ['Web Development', 'App Development', 'Desktop App Development', 'Graphic Designing', 'English for IT', 'AI and Automation', 'Freelancing'];
+  const categoryNames = ['Web Development', 'App Development', 'Desktop App Development', 'Graphic Designing', 'English for IT', 'AI and Automation', 'Data', 'Freelancing'];
   for (const [index, name] of categoryNames.entries()) {
     const slug = name.toLowerCase().replaceAll(' ', '-');
     let category = await categories.findOne({ where: { slug } });
@@ -227,6 +227,7 @@ async function seed() {
         isPublished: true,
       }),
     ));
+  await courses.update({ slug: 'web-development-bootcamp' }, { isPublished: false, isFeatured: false });
 
   const appCourse =
     (await courses.findOne({ where: { slug: 'app-development-bootcamp' } })) ??
@@ -279,6 +280,20 @@ async function seed() {
       slug: 'ai-and-automation',
       shortDescription: 'Use practical AI tools and automation workflows for real business tasks.',
       fee: 32000,
+    },
+    {
+      categorySlug: 'data',
+      title: 'Data Science and Analytics',
+      slug: 'data-science-and-analytics',
+      shortDescription: 'Master Python, statistics, dashboards, machine learning, and data portfolio projects.',
+      fee: 60000,
+    },
+    {
+      categorySlug: 'data',
+      title: 'Data Analysis',
+      slug: 'data-analysis',
+      shortDescription: 'Learn Excel, SQL, Python, dashboards, reporting, and practical business analysis.',
+      fee: 30000,
     },
     {
       categorySlug: 'freelancing',

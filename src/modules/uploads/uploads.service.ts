@@ -48,7 +48,7 @@ export class UploadsService {
     private readonly configService: ConfigService,
   ) {}
 
-  async save(file: UploadedFileData, dto: UploadResourceDto, actorId: string) {
+  async save(file: UploadedFileData, dto: UploadResourceDto, actorId?: string) {
     if (!file?.buffer) throw new BadRequestException('File is required');
     if (!allowedMimeTypes.has(file.mimetype)) {
       throw new BadRequestException('Unsupported file type');
@@ -61,7 +61,7 @@ export class UploadsService {
     const url = await this.persist(file, folder, fileName);
     await this.auditLogsRepository.save(
       this.auditLogsRepository.create({
-        user: { id: actorId } as User,
+        user: actorId ? ({ id: actorId } as User) : undefined,
         action: 'upload',
         module: 'uploads',
         recordId: fileName,
@@ -86,7 +86,7 @@ export class UploadsService {
     };
   }
 
-  async saveImage(file: UploadedFileData, folder: string, actorId: string) {
+  async saveImage(file: UploadedFileData, folder: string, actorId?: string) {
     if (!file?.buffer) throw new BadRequestException('Image is required');
     if (!allowedImageMimeTypes.has(file.mimetype)) {
       throw new BadRequestException(

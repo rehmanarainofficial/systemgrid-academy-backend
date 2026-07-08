@@ -10,6 +10,10 @@ import { createHmac, randomBytes } from 'crypto';
 import { Brackets, DataSource, EntityManager } from 'typeorm';
 import { UserRole } from '../../common/enums/user-role.enum';
 import {
+  ensureWalletAndReferralCode,
+  resolveReferrerCreditAmount,
+} from '../../common/referral/referral.util';
+import {
   AdmissionApplication,
   AdmissionApplicationStatus,
   AuditLog,
@@ -23,7 +27,7 @@ import {
   Payment,
   PaymentGateway,
   PaymentIntent,
-  ReferralCode,
+  PaymentMethod,
   ReferralRedemption,
   StudentProfile,
   StudentWallet,
@@ -31,15 +35,19 @@ import {
   WalletLedger,
 } from '../../database/entities';
 import {
+  ApproveOfflinePaymentDto,
   CreatePaymentIntentDto,
   GatewayCallbackDto,
   StartAdmissionDto,
   SubmitAdmissionDto,
+  SubmitPaymentProofDto,
   VerifyAdmissionEmailDto,
 } from './dto/admission.dto';
 import { PricingCalculateDto } from './dto/pricing.dto';
 import { AdmissionEmailService } from './email.service';
 import { PricingService } from './pricing.service';
+import { UploadsService } from '../uploads/uploads.service';
+import type { UploadedFileData } from '../uploads/uploads.service';
 
 @Injectable()
 export class AdmissionsService {
@@ -48,6 +56,7 @@ export class AdmissionsService {
     private readonly pricingService: PricingService,
     private readonly emailService: AdmissionEmailService,
     private readonly configService: ConfigService,
+    private readonly uploadsService: UploadsService,
   ) {}
 
   async calculatePricing(dto: PricingCalculateDto) {
@@ -55,8 +64,18 @@ export class AdmissionsService {
     return this.mapPricing(result);
   }
 
+  async validateReferralCode(code: string) {
+    if (!code?.trim()) return { valid: false as const };
+    return this.pricingService.validateReferralCode(code.trim());
+  }
+
   async sendEmailOtp(dto: StartAdmissionDto) {
     const email = dto.email.trim().toLowerCase();
+    // Block admissions for emails that already have an account (no duplicate
+    // students, and no pointless OTP to an existing user).
+    if (await this.dataSource.getRepository(User).findOne({ where: { email } })) {
+      throw new ConflictException('An account with this email already exists. Please login instead.');
+    }
     const otp = String(Math.floor(100000 + Math.random() * 900000));
     const otpHash = await bcrypt.hash(otp, 10);
     const now = new Date();
@@ -216,7 +235,7 @@ export class AdmissionsService {
           referredApplication: application,
           status: 'payment_pending',
           referredStudentDiscountAmount: pricing.referralCouponDiscountAmount,
-          referrerCreditAmount: 1000,
+          referrerCreditAmount: await resolveReferrerCreditAmount(manager),
         }));
       }
       await manager.save(AuditLog, manager.create(AuditLog, {
@@ -233,6 +252,49 @@ export class AdmissionsService {
       status: 'payment_pending',
       pricing: this.mapPricing(pricing),
       message: 'Admission application submitted. Continue to secure payment.',
+    };
+  }
+
+  // Applicant submits proof of a manual/offline transfer (screenshot + optional
+  // reference / sender number). Staff later verify it from the admin console.
+  async submitPaymentProof(dto: SubmitPaymentProofDto, file?: UploadedFileData) {
+    const email = dto.email.trim().toLowerCase();
+    const application = await this.dataSource.getRepository(AdmissionApplication).findOne({
+      where: { id: dto.applicationId, email },
+    });
+    if (!application) throw new NotFoundException('Admission application not found');
+    if (!['payment_pending', 'payment_failed'].includes(application.status)) {
+      throw new BadRequestException('This application is not awaiting payment');
+    }
+
+    let proofUrl: string | undefined;
+    if (file?.buffer) {
+      try {
+        const saved = await this.uploadsService.saveImage(file, 'payment-proofs');
+        proofUrl = saved.url;
+      } catch {
+        // Storage may be unavailable; keep the text reference so staff can still verify.
+        proofUrl = undefined;
+      }
+    }
+
+    application.paymentReference = dto.transactionId?.trim() || application.paymentReference;
+    application.paymentSenderNumber = dto.senderNumber?.trim() || application.paymentSenderNumber;
+    if (proofUrl) application.paymentProofUrl = proofUrl;
+    application.paymentProofSubmittedAt = new Date();
+    await this.dataSource.getRepository(AdmissionApplication).save(application);
+    await this.dataSource.getRepository(AuditLog).save({
+      action: 'submit_payment_proof',
+      module: 'admissions',
+      recordId: application.id,
+      metadata: { hasScreenshot: Boolean(proofUrl), reference: application.paymentReference ?? null },
+    });
+
+    return {
+      applicationId: application.id,
+      status: application.status,
+      proofUploaded: Boolean(proofUrl),
+      message: 'Payment proof received. Our team will verify it and activate your portal shortly.',
     };
   }
 
@@ -305,6 +367,46 @@ export class AdmissionsService {
     return { message: 'Payment verified and student enrollment activated', paymentIntentId: intent.id, status: 'verified' };
   }
 
+  // Staff/admin verify an offline payment (cash, bank transfer, Easypaisa,
+  // JazzCash) against an admission and enroll the student. This is the manual
+  // path that replaces the automated gateway callback: a human confirms the
+  // proof, so no unauthenticated request can create a free enrollment.
+  async approveOfflinePayment(applicationId: string, dto: ApproveOfflinePaymentDto, actorId: string) {
+    if (dto.method !== 'cash' && !dto.transactionId?.trim()) {
+      throw new BadRequestException('Transaction ID is required for non-cash payments');
+    }
+    return this.dataSource.transaction(async (manager) => {
+      const application = await manager.findOne(AdmissionApplication, {
+        where: { id: applicationId },
+        relations: { course: true, batch: true, invoices: true },
+      });
+      if (!application) throw new NotFoundException('Admission application not found');
+      if (!['payment_pending', 'payment_failed'].includes(application.status)) {
+        throw new BadRequestException('This application is not awaiting payment');
+      }
+      const unpaidInvoice = application.invoices?.find((item) => item.status === 'unpaid');
+      if (!unpaidInvoice) throw new BadRequestException('Unpaid invoice not found for this application');
+      const invoice = await manager.findOne(Invoice, { where: { id: unpaidInvoice.id } });
+      if (!invoice) throw new BadRequestException('Unpaid invoice not found for this application');
+
+      const { student, payment } = await this.enrollFromApplication(manager, {
+        application,
+        invoice,
+        method: dto.method,
+        transactionId: dto.transactionId?.trim() || undefined,
+        receivedById: actorId,
+        notes: dto.notes?.trim() || 'Offline admission payment verified by staff',
+      });
+      return {
+        message: 'Payment verified and student enrolled successfully',
+        applicationId: application.id,
+        studentId: student.id,
+        paymentId: payment.id,
+        status: 'enrolled',
+      };
+    });
+  }
+
   async listAdmin(query: { search?: string; status?: string }) {
     const builder = this.dataSource.getRepository(AdmissionApplication)
       .createQueryBuilder('application')
@@ -332,6 +434,13 @@ export class AdmissionsService {
         finalPayableAmount: Number(item.finalPayableAmount),
         status: item.status,
         emailVerified: item.emailVerified,
+        preferredMode: item.preferredMode ?? '',
+        preferredTiming: item.preferredTiming ?? '',
+        preferredDays: item.preferredDays ?? '',
+        paymentReference: item.paymentReference ?? '',
+        paymentSenderNumber: item.paymentSenderNumber ?? '',
+        paymentProofUrl: item.paymentProofUrl ?? '',
+        paymentProofSubmittedAt: item.paymentProofSubmittedAt ?? null,
         createdAt: item.createdAt,
       })),
     };
@@ -404,8 +513,46 @@ export class AdmissionsService {
     dto: GatewayCallbackDto,
     payload: Record<string, unknown>,
   ) {
-    const application = intent.admissionApplication;
-    const invoice = intent.invoice;
+    const { student, plan } = await this.enrollFromApplication(manager, {
+      application: intent.admissionApplication,
+      invoice: intent.invoice,
+      method: intent.gateway,
+      gateway: intent.gateway,
+      transactionId: dto.gatewayReference ?? intent.merchantTransactionId,
+      gatewayReference: dto.gatewayReference,
+      rawGatewayResponse: payload,
+      paymentIntent: intent,
+      notes: 'Automated online admission payment',
+    });
+    intent.student = student;
+    intent.feePlan = plan;
+    intent.status = 'verified';
+    intent.gatewayReference = dto.gatewayReference;
+    intent.callbackPayload = payload;
+    intent.verifiedAt = new Date();
+    await manager.save(intent);
+  }
+
+  // Core enrollment used by BOTH the (optional) gateway callback and the
+  // staff-driven manual/offline approval. Creates the student account, active
+  // enrollment, paid fee plan + invoice, records the verified payment, and
+  // fires the referral reward — all inside the caller's transaction.
+  private async enrollFromApplication(
+    manager: EntityManager,
+    params: {
+      application: AdmissionApplication;
+      invoice: Invoice;
+      method: PaymentMethod;
+      gateway?: PaymentGateway;
+      transactionId?: string;
+      gatewayReference?: string;
+      rawGatewayResponse?: Record<string, unknown>;
+      paymentIntent?: PaymentIntent;
+      receivedById?: string;
+      notes: string;
+    },
+  ) {
+    const { application, invoice } = params;
     if (!application.course) throw new BadRequestException('Application course is missing');
     if (await manager.findOne(User, { where: { email: application.email } })) {
       throw new ConflictException('Student account already exists for this email');
@@ -481,30 +628,22 @@ export class AdmissionsService {
       enrollment,
       feePlan: plan,
       invoiceRecord: invoice,
-      paymentIntent: intent,
+      paymentIntent: params.paymentIntent,
       amount: Number(application.finalPayableAmount),
-      method: intent.gateway,
-      gateway: intent.gateway,
-      transactionId: dto.gatewayReference ?? intent.merchantTransactionId,
-      gatewayReference: dto.gatewayReference,
+      method: params.method,
+      gateway: params.gateway,
+      transactionId: params.transactionId,
+      gatewayReference: params.gatewayReference,
       paymentDate: new Date().toISOString().slice(0, 10),
       status: 'verified',
-      notes: 'Automated online admission payment',
-      rawGatewayResponse: payload,
+      receivedBy: params.receivedById ? ({ id: params.receivedById } as User) : undefined,
+      notes: params.notes,
+      rawGatewayResponse: params.rawGatewayResponse,
     }));
-
-    intent.student = student;
-    intent.feePlan = plan;
-    intent.status = 'verified';
-    intent.gatewayReference = dto.gatewayReference;
-    intent.callbackPayload = payload;
-    intent.verifiedAt = new Date();
-    await manager.save(intent);
 
     application.status = 'enrolled';
     await manager.save(application);
-    await this.createWalletIfMissing(manager, student);
-    await this.generateReferralCode(manager, student, user.name);
+    await ensureWalletAndReferralCode(manager, student, user.name);
     await this.verifyReferralReward(manager, application, student);
 
     await manager.save(Notification, manager.create(Notification, {
@@ -515,12 +654,14 @@ export class AdmissionsService {
       actionUrl: '/student/dashboard',
     }));
     await manager.save(AuditLog, manager.create(AuditLog, {
-      action: 'payment_verified_enroll_student',
+      user: params.receivedById ? ({ id: params.receivedById } as User) : undefined,
+      action: params.paymentIntent ? 'payment_verified_enroll_student' : 'offline_payment_enroll_student',
       module: 'admissions',
       recordId: application.id,
-      metadata: { paymentIntentId: intent.id, paymentId: payment.id, studentId: student.id, enrollmentId: enrollment.id },
+      metadata: { paymentId: payment.id, studentId: student.id, enrollmentId: enrollment.id, method: params.method },
     }));
     await this.emailService.sendWelcomeEmail(user.email);
+    return { user, student, enrollment, plan, payment };
   }
 
   private async verifyReferralReward(manager: EntityManager, application: AdmissionApplication, referredStudent: StudentProfile) {
@@ -552,7 +693,7 @@ export class AdmissionsService {
     await manager.save(Notification, manager.create(Notification, {
       user: redemption.referrerStudent.user,
       title: 'Referral reward added',
-      message: 'PKR 1,000 credit has been added to your wallet.',
+      message: `PKR ${Number(redemption.referrerCreditAmount).toLocaleString('en-PK')} credit has been added to your wallet.`,
       type: 'referral',
       actionUrl: '/student/referrals',
     }));
@@ -563,17 +704,6 @@ export class AdmissionsService {
     const existing = await manager.findOne(StudentWallet, { where: { student: { id: student.id } } });
     if (existing) return existing;
     return manager.save(StudentWallet, manager.create(StudentWallet, { student, balance: 0, totalEarned: 0, totalUsed: 0 }));
-  }
-
-  private async generateReferralCode(manager: EntityManager, student: StudentProfile, name: string) {
-    const existing = await manager.findOne(ReferralCode, { where: { student: { id: student.id }, isActive: true } });
-    if (existing) return existing;
-    const prefix = (name.split(/\s+/)[0] || 'SGA').replace(/[^a-z]/gi, '').slice(0, 8).toUpperCase() || 'SGA';
-    let code = `${prefix}-SGA-${Math.floor(1000 + Math.random() * 9000)}`;
-    while (await manager.findOne(ReferralCode, { where: { code } })) {
-      code = `${prefix}-SGA-${Math.floor(1000 + Math.random() * 9000)}`;
-    }
-    return manager.save(ReferralCode, manager.create(ReferralCode, { student, code }));
   }
 
   private async resolveBatch(batchId: string, courseId: string) {
@@ -599,7 +729,9 @@ export class AdmissionsService {
     const secret = gateway === 'jazzcash'
       ? this.configService.get<string>('JAZZCASH_INTEGRITY_SALT')
       : this.configService.get<string>('EASYPAISA_HASH_KEY');
-    if (!secret || !dto.secureHash) return this.configService.get('NODE_ENV') !== 'production';
+    // Never auto-pass: a missing salt or missing hash means we cannot prove the
+    // callback is genuine, so it must be rejected (closes the free-enroll hole).
+    if (!secret || !dto.secureHash) return false;
     const base = `${dto.merchantTransactionId}|${dto.status}|${Number(intent.amount).toFixed(2)}`;
     const expected = createHmac('sha256', secret).update(base).digest('hex');
     return expected.toLowerCase() === dto.secureHash.toLowerCase() || String(payload.secureHash).toLowerCase() === expected.toLowerCase();

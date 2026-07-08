@@ -22,6 +22,7 @@ export type PricingBreakdown = {
   finalPayableAmount: number;
   totalSavings: number;
   referralCode?: ReferralCode;
+  referralInvalid: boolean;
   notes: string[];
 };
 
@@ -52,10 +53,13 @@ export class PricingService {
       input.scholarshipEligible && input.pricingPlanType === 'quarterly'
         ? this.percent(grossAmount, this.offerPercentage(offers, 'scholarship-discount', 50))
         : 0;
+    // Lenient: an invalid/inactive code simply yields no referral discount
+    // instead of breaking the whole price calculation.
     const referral = input.referralCode ? await this.findReferralCode(input.referralCode) : undefined;
     const referralCouponDiscountAmount = referral
       ? this.offerAmount(offers, 'referral-new-student-discount', 500)
       : 0;
+    const referralInvalid = Boolean(input.referralCode?.trim()) && !referral;
     const beforeWallet = Math.max(
       0,
       grossAmount - planDiscountAmount - scholarshipDiscountAmount - referralCouponDiscountAmount,
@@ -77,7 +81,11 @@ export class PricingService {
       finalPayableAmount,
       totalSavings: planDiscountAmount + referralCouponDiscountAmount + scholarshipDiscountAmount + walletCreditUsed,
       referralCode: referral,
-      notes: this.notes(input.pricingPlanType, referralCouponDiscountAmount, scholarshipDiscountAmount, walletCreditUsed),
+      referralInvalid,
+      notes: [
+        ...(referralInvalid ? ['Referral code is invalid or inactive and was not applied.'] : []),
+        ...this.notes(input.pricingPlanType, referralCouponDiscountAmount, scholarshipDiscountAmount, walletCreditUsed),
+      ],
     };
   }
 
@@ -128,12 +136,25 @@ export class PricingService {
   }
 
   private async findReferralCode(code: string) {
-    const referral = await this.dataSource.getRepository(ReferralCode).findOne({
-      where: { code: code.trim().toUpperCase(), isActive: true },
-      relations: { student: { user: true } },
-    });
-    if (!referral) throw new BadRequestException('Invalid or inactive referral code');
-    return referral;
+    return (
+      (await this.dataSource.getRepository(ReferralCode).findOne({
+        where: { code: code.trim().toUpperCase(), isActive: true },
+        relations: { student: { user: true } },
+      })) ?? undefined
+    );
+  }
+
+  // Real-time referral check for the admission form (Hostinger-style apply).
+  async validateReferralCode(code: string) {
+    const referral = await this.findReferralCode(code);
+    if (!referral) return { valid: false as const };
+    const offers = await this.activeOffers();
+    return {
+      valid: true as const,
+      code: referral.code,
+      referrerName: referral.student?.user?.name ?? 'A SystemGrid student',
+      discountAmount: this.offerAmount(offers, 'referral-new-student-discount', 500),
+    };
   }
 
   private notes(

@@ -29,6 +29,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   async validate(payload: { sub: string }) {
     const user = await this.usersService.findById(payload.sub);
     if (!user) return null;
+    // Reject deactivated accounts so an admin disabling a user takes effect
+    // immediately, even if the user still holds a valid access token.
+    if (user.isActive === false) return null;
 
     const { password: _password, ...safeUser } = user;
     return safeUser;
