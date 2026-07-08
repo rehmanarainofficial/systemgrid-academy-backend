@@ -377,6 +377,15 @@ export class StudentProfile {
   @Column({ name: 'email_verified_at', type: 'timestamptz', nullable: true })
   emailVerifiedAt?: Date;
 
+  @Column({ name: 'password_sent', default: false })
+  passwordSent: boolean;
+
+  @Column({ name: 'password_sent_at', type: 'timestamptz', nullable: true })
+  passwordSentAt?: Date;
+
+  @Column({ name: 'password_last_changed', type: 'timestamptz', nullable: true })
+  passwordLastChanged?: Date;
+
   @Column({ name: 'source', type: 'enum', enum: StudentSourceEnum, default: StudentSourceEnum.Website })
   source: StudentSource;
 

@@ -207,6 +207,9 @@ export class StudentsService {
         admissionMessage: student.admissionMessage ?? '',
         emailVerified: student.emailVerified,
         emailVerifiedAt: student.emailVerifiedAt ?? null,
+        passwordSent: student.passwordSent,
+        passwordSentAt: student.passwordSentAt ?? null,
+        passwordLastChanged: student.passwordLastChanged ?? null,
         source: student.source,
       },
       summary: {
@@ -405,7 +408,10 @@ export class StudentsService {
       }
       if (dto.name) student.user.name = dto.name.trim();
       if (dto.phone) student.user.phone = dto.phone.trim();
-      if (dto.password) student.user.password = await bcrypt.hash(dto.password, 12);
+      if (dto.password) {
+        student.user.password = await bcrypt.hash(dto.password, 12);
+        student.passwordLastChanged = new Date();
+      }
       if (dto.city !== undefined) student.city = dto.city.trim() || undefined;
       if (dto.guardianName !== undefined) student.guardianName = dto.guardianName.trim() || undefined;
       if (dto.guardianPhone !== undefined) student.guardianPhone = dto.guardianPhone.trim() || undefined;

@@ -187,7 +187,16 @@ export class AdmissionsService {
       where: { id: dto.courseId, isPublished: true },
     });
     if (!course) throw new BadRequestException('Selected course is not available for admission');
-    const batch = dto.batchId ? await this.resolveBatch(dto.batchId, dto.courseId) : undefined;
+    
+    // Resolve and validate batch
+    let batch: Batch | undefined = undefined;
+    if (dto.batchId) {
+      batch = await this.resolveBatch(dto.batchId, dto.courseId);
+      if (!batch) {
+        throw new BadRequestException('Selected batch is not available for this course');
+      }
+    }
+    
     if (batch && batch.capacity > 0) {
       const enrolledCount = await this.dataSource.getRepository(Enrollment).count({
         where: { batch: { id: batch.id }, status: 'active' },
@@ -301,12 +310,14 @@ export class AdmissionsService {
       try {
         const saved = await this.uploadsService.saveImage(file, 'payment-proofs');
         proofUrl = saved.url;
-      } catch {
+      } catch (error) {
         // Storage may be unavailable; keep the text reference so staff can still verify.
+        console.error('Failed to upload payment proof screenshot:', error);
         proofUrl = undefined;
       }
     }
 
+    // Always update the text fields even if screenshot upload fails
     application.paymentReference = dto.transactionId?.trim() || application.paymentReference;
     application.paymentSenderNumber = dto.senderNumber?.trim() || application.paymentSenderNumber;
     if (proofUrl) application.paymentProofUrl = proofUrl;
@@ -316,13 +327,19 @@ export class AdmissionsService {
       action: 'submit_payment_proof',
       module: 'admissions',
       recordId: application.id,
-      metadata: { hasScreenshot: Boolean(proofUrl), reference: application.paymentReference ?? null },
+      metadata: { 
+        hasScreenshot: Boolean(proofUrl), 
+        reference: application.paymentReference ?? null,
+        senderNumber: application.paymentSenderNumber ?? null,
+      },
     });
 
     return {
       applicationId: application.id,
       status: application.status,
       proofUploaded: Boolean(proofUrl),
+      hasPaymentReference: Boolean(application.paymentReference),
+      hasSenderNumber: Boolean(application.paymentSenderNumber),
       message: 'Payment proof received. Our team will verify it and activate your portal shortly.',
     };
   }
@@ -587,7 +604,8 @@ export class AdmissionsService {
       throw new ConflictException('Student account already exists for this email');
     }
 
-    const passwordSeed = randomBytes(32).toString('base64url');
+    // Generate a readable password for the student
+    const passwordSeed = this.generateReadablePassword();
     const user = await manager.save(User, manager.create(User, {
       name: application.name ?? application.email,
       email: application.email,
@@ -612,6 +630,9 @@ export class AdmissionsService {
       admissionMessage: application.message,
       emailVerified: application.emailVerified,
       emailVerifiedAt: application.emailVerifiedAt,
+      passwordSent: true,
+      passwordSentAt: new Date(),
+      passwordLastChanged: new Date(),
       source: application.referralCodeApplied ? 'referral' : 'website',
       status: 'active',
     }));
@@ -687,9 +708,9 @@ export class AdmissionsService {
       action: params.paymentIntent ? 'payment_verified_enroll_student' : 'offline_payment_enroll_student',
       module: 'admissions',
       recordId: application.id,
-      metadata: { paymentId: payment.id, studentId: student.id, enrollmentId: enrollment.id, method: params.method },
+      metadata: { paymentId: payment.id, studentId: student.id, enrollmentId: enrollment.id, method: params.method, generatedPassword: passwordSeed },
     }));
-    await this.emailService.sendWelcomeEmail(user.email);
+    await this.emailService.sendWelcomeEmail(user.email, user.name, passwordSeed);
     return { user, student, enrollment, plan, payment };
   }
 
@@ -733,6 +754,17 @@ export class AdmissionsService {
     const existing = await manager.findOne(StudentWallet, { where: { student: { id: student.id } } });
     if (existing) return existing;
     return manager.save(StudentWallet, manager.create(StudentWallet, { student, balance: 0, totalEarned: 0, totalUsed: 0 }));
+  }
+
+  private generateReadablePassword(): string {
+    const adjectives = ['Smart', 'Quick', 'Bright', 'Sharp', 'Active', 'Ready', 'Tech', 'Code', 'Web', 'Dev'];
+    const nouns = ['Learner', 'Student', 'Scholar', 'Master', 'Expert', 'Pro', 'Ninja', 'Guru', 'Wizard', 'Hacker'];
+    const numbers = Math.floor(Math.random() * 900) + 100; // 100-999
+    
+    const adjective = adjectives[Math.floor(Math.random() * adjectives.length)];
+    const noun = nouns[Math.floor(Math.random() * nouns.length)];
+    
+    return `${adjective}${noun}${numbers}`;
   }
 
   private async resolveBatch(batchId: string, courseId: string) {

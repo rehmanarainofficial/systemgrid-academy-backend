@@ -690,6 +690,16 @@ export class StudentPortalService {
     return { message: 'All notifications marked as read' };
   }
 
+  async getNotificationCount(userId: string) {
+    const unreadCount = await this.notificationsRepository.count({
+      where: { 
+        user: { id: userId },
+        isRead: false 
+      }
+    });
+    return { unreadCount };
+  }
+
   async deleteNotification(userId: string, notificationId: string) {
     const notification = await this.notificationsRepository.findOne({
       where: { id: notificationId, user: { id: userId } },
@@ -783,6 +793,12 @@ export class StudentPortalService {
 
     user.password = await bcrypt.hash(dto.newPassword, 12);
     await this.usersRepository.save(user);
+    
+    // Update password last changed timestamp
+    await this.studentsRepository.update(
+      { user: { id: userId } },
+      { passwordLastChanged: new Date() }
+    );
 
     return { message: 'Password changed successfully' };
   }

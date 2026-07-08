@@ -36,11 +36,28 @@ export class AdmissionEmailService {
     });
   }
 
-  async sendWelcomeEmail(email: string) {
+  async sendWelcomeEmail(email: string, name: string, password: string) {
     await this.send({
       to: email,
-      subject: 'Welcome to SystemGrid Academy',
-      text: 'Your payment has been verified and your student account is active. Please use the password reset flow to set your portal password securely.',
+      subject: 'Welcome to SystemGrid Academy - Your Account is Ready',
+      text: [
+        `Dear ${name},`,
+        '',
+        'Congratulations! Your payment has been verified and your student account is now active.',
+        '',
+        'Here are your login credentials:',
+        `Email: ${email}`,
+        `Password: ${password}`,
+        '',
+        'Login URL: https://systemgrid-academy.com/login',
+        '',
+        'For your security, we recommend changing your password after your first login.',
+        '',
+        'If you have any questions, please contact our support team.',
+        '',
+        'Welcome to SystemGrid Academy!',
+      ].join('\n'),
+      html: this.welcomeTemplate(name, email, password),
     });
   }
 
@@ -105,6 +122,59 @@ export class AdmissionEmailService {
                     <p style="margin:18px 0 0;font-size:13px;line-height:1.7;color:#6b7280;">This code expires in 15 minutes. If you did not request admission at SystemGrid Academy, you can safely ignore this email.</p>
                     <div style="margin-top:24px;border-radius:18px;background:#f8fafc;padding:16px;font-size:13px;line-height:1.7;color:#475569;">
                       For your security, SystemGrid Academy will never ask for this code through WhatsApp or phone call.
+                    </div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </div>
+    `;
+  }
+
+  private welcomeTemplate(name: string, email: string, password: string) {
+    return `
+      <div style="margin:0;padding:0;background:#f4f7fb;font-family:Inter,Arial,sans-serif;color:#111827;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f7fb;padding:32px 16px;">
+          <tr>
+            <td align="center">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;overflow:hidden;border-radius:28px;background:#ffffff;box-shadow:0 24px 80px rgba(15,23,42,.12);">
+                <tr>
+                  <td style="padding:28px 28px 18px;background:linear-gradient(135deg,#0071e3,#00b8ff 55%,#6d5dfc);color:#ffffff;">
+                    <div style="display:inline-block;border-radius:999px;background:rgba(255,255,255,.16);padding:7px 12px;font-size:12px;font-weight:700;letter-spacing:.04em;">SYSTEMGRID ACADEMY</div>
+                    <h1 style="margin:18px 0 0;font-size:28px;line-height:1.15;letter-spacing:-.03em;">Welcome to SystemGrid Academy!</h1>
+                    <p style="margin:10px 0 0;font-size:15px;line-height:1.7;color:rgba(255,255,255,.86);">Your student account is now active and ready to use.</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:30px 28px;">
+                    <p style="margin:0 0 8px;font-size:14px;line-height:1.7;color:#4b5563;">Dear ${name},</p>
+                    <p style="margin:0 0 16px;font-size:14px;line-height:1.7;color:#4b5563;">Congratulations! Your payment has been verified and your student account is now active. Here are your login credentials:</p>
+                    
+                    <div style="margin:20px 0;border-radius:22px;border:1px solid #dbeafe;background:#eff6ff;padding:20px;">
+                      <p style="margin:0 0 8px;font-size:13px;line-height:1.7;color:#6b7280;font-weight:600;">EMAIL ADDRESS</p>
+                      <p style="margin:0 0 16px;font-size:16px;line-height:1.5;color:#0071e3;font-weight:700;">${email}</p>
+                      
+                      <p style="margin:0 0 8px;font-size:13px;line-height:1.7;color:#6b7280;font-weight:600;">PASSWORD</p>
+                      <p style="margin:0 0 8px;font-size:20px;line-height:1;font-weight:800;letter-spacing:.16em;color:#0071e3;">${password}</p>
+                    </div>
+                    
+                    <div style="margin:24px 0;padding:16px;border-radius:18px;background:#f8fafc;">
+                      <p style="margin:0 0 8px;font-size:13px;line-height:1.7;color:#475569;font-weight:600;">HOW TO LOGIN</p>
+                      <ol style="margin:0;padding-left:20px;font-size:14px;line-height:1.7;color:#4b5563;">
+                        <li style="margin-bottom:8px;">Visit <a href="https://systemgrid-academy.com/login" style="color:#0071e3;text-decoration:underline;">systemgrid-academy.com/login</a></li>
+                        <li style="margin-bottom:8px;">Enter your email address and password above</li>
+                        <li style="margin-bottom:8px;">Click "Login" to access your student portal</li>
+                        <li>For your security, we recommend changing your password after first login</li>
+                      </ol>
+                    </div>
+                    
+                    <p style="margin:24px 0 8px;font-size:14px;line-height:1.7;color:#4b5563;">If you have any questions or need assistance, please contact our support team.</p>
+                    <p style="margin:0 0 16px;font-size:14px;line-height:1.7;color:#4b5563;">Welcome to SystemGrid Academy! We're excited to have you as part of our learning community.</p>
+                    
+                    <div style="margin-top:24px;border-radius:18px;background:#f8fafc;padding:16px;font-size:13px;line-height:1.7;color:#475569;">
+                      <p style="margin:0;">For your security, never share your password with anyone. SystemGrid Academy will never ask for your password through email, WhatsApp, or phone call.</p>
                     </div>
                   </td>
                 </tr>

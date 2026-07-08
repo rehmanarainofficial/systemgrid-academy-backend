@@ -42,6 +42,16 @@ export class NotificationsService {
     };
   }
 
+  async count(userId: string) {
+    const unreadCount = await this.dataSource.getRepository(Notification).count({
+      where: { 
+        user: { id: userId },
+        isRead: false 
+      }
+    });
+    return { unreadCount };
+  }
+
   async findOne(id: string) {
     const item = await this.dataSource.getRepository(AuditLog).findOne({ where: { id, module: 'notifications', action: 'send' }, relations: { user: true } });
     if (!item) throw new NotFoundException('Notification history not found');

@@ -17,6 +17,7 @@ type AdminRequest = Request & { user: User };
 export class NotificationsController {
   constructor(private readonly service: NotificationsService) {}
   @Get() findAll(@Query() query: AdminNotificationsQueryDto) { return this.service.findAll(query); }
+  @Get('count') count(@Req() request: AdminRequest) { return this.service.count(request.user.id); }
   @Get('options') options() { return this.service.options(); }
   @Get(':id') findOne(@Param('id') id: string) { return this.service.findOne(id); }
   @Post('send') send(@Body() dto: SendAdminNotificationDto, @Req() request: AdminRequest) { return this.service.send(dto, request.user.id); }

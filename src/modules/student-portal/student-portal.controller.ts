@@ -95,6 +95,11 @@ export class StudentPortalController {
     return this.studentPortalService.markAllNotificationsAsRead(request.user.id);
   }
 
+  @Get('notifications/count')
+  getNotificationCount(@Req() request: AuthenticatedRequest) {
+    return this.studentPortalService.getNotificationCount(request.user.id);
+  }
+
   @Patch('notifications/:notificationId/read')
   markNotificationAsRead(
     @Req() request: AuthenticatedRequest,
