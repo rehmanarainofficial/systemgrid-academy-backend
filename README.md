@@ -53,28 +53,13 @@ npm run db:logs
 npm run migration:run
 npm run db:down
 npm run seed
+npm run seed:courses
 npm run seed:blogs
 ```
 
-Student seed login:
-
-```bash
-Super Admin:
-email: superadmin@systemgrid.academy
-password: SuperAdmin@123
-
-Admin:
-email: admin@systemgrid.academy
-password: Admin@123
-
-Staff:
-email: staff@systemgrid.academy
-password: Staff@123
-
-Student:
-email: student@systemgrid.academy
-password: Student@123
-```
+`npm run seed` only bootstraps admin accounts, categories, and settings.  
+Course catalog and outlines come from `npm run seed:courses`.  
+Set passwords in `.env` before seeding (`SEED_ADMIN_PASSWORD`, `SUPERADMIN_PASSWORD`, `STAFF_PASSWORD`).
 
 ## Docker PostgreSQL Read Commands
 

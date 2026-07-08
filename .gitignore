@@ -53,5 +53,11 @@ pids
 *.seed
 *.pid.lock
 
+# Local database dumps (never commit)
+db_dump.sql
+*.sql.dump
+*.dump
+/backups/
+
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
