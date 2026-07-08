@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 type MailPayload = {
@@ -74,6 +74,10 @@ export class AdmissionEmailService {
     const user = this.configService.get<string>('MAIL_USER');
     const pass = this.configService.get<string>('MAIL_PASS');
     if (!host || !user || !pass) {
+      if (process.env.NODE_ENV === 'production') {
+        this.logger.error(`Email not configured. Missing MAIL_HOST, MAIL_USER, or MAIL_PASS.`);
+        throw new ServiceUnavailableException('Email service is not configured on the server.');
+      }
       this.logger.log(`[mail:dev] ${payload.subject} -> ${payload.to}: ${payload.text}`);
       return;
     }
@@ -95,7 +99,9 @@ export class AdmissionEmailService {
         html: payload.html,
       });
     } catch (error) {
-      this.logger.warn(`Email delivery skipped: ${error instanceof Error ? error.message : 'unknown error'}`);
+      const message = error instanceof Error ? error.message : 'unknown error';
+      this.logger.error(`Email delivery failed: ${message}`);
+      throw new ServiceUnavailableException('Unable to send email right now. Please try again shortly.');
     }
   }
 

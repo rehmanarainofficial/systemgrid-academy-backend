@@ -56,7 +56,14 @@ export class BatchesService {
       this.dataSource.getRepository(Instructor).find({ where: { isActive: true }, order: { name: 'ASC' } }),
     ]);
     return {
-      courses: courses.map(({ id, title, isPublished }) => ({ id, title, isPublished })),
+      courses: courses.map(({ id, title, isPublished, duration, durationMonths, durationUnit }) => ({
+        id,
+        title,
+        isPublished,
+        duration,
+        durationMonths,
+        durationUnit,
+      })),
       instructors: instructors.map(({ id, name, specialization }) => ({ id, name, specialization: specialization ?? '' })),
     };
   }
