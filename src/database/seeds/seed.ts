@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { config } from 'dotenv';
 import { DataSource } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { UserRole } from '../../common/enums/user-role.enum';
@@ -27,6 +28,8 @@ import {
   StudentProfile,
   User,
 } from '../entities';
+
+config();
 
 const dataSource = new DataSource({
   type: 'postgres',
@@ -163,7 +166,7 @@ async function seed() {
         email: 'student@systemgrid.academy',
         password: await bcrypt.hash('Student@123', 12),
         role: UserRole.Student,
-        phone: '+923001234567',
+        phone: '+923433133834',
         isActive: true,
       }),
     );
