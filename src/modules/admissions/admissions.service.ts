@@ -69,6 +69,35 @@ export class AdmissionsService {
     return this.pricingService.validateReferralCode(code.trim());
   }
 
+  // Open batches an applicant can pick during admission (upcoming/active and not
+  // already full). batchId then flows through submit() and enrollment.
+  async getOpenBatchesForCourse(courseId: string) {
+    const batches = await this.dataSource.getRepository(Batch).find({
+      where: { course: { id: courseId }, status: In(['upcoming', 'active']) },
+      order: { startDate: 'ASC' },
+    });
+    const result: Array<Record<string, unknown>> = [];
+    for (const batch of batches) {
+      if (batch.capacity > 0) {
+        const enrolled = await this.dataSource.getRepository(Enrollment).count({
+          where: { batch: { id: batch.id }, status: 'active' },
+        });
+        if (enrolled >= batch.capacity) continue;
+      }
+      result.push({
+        id: batch.id,
+        title: batch.title,
+        code: batch.code,
+        startDate: batch.startDate,
+        startTime: batch.startTime ?? '',
+        endTime: batch.endTime ?? '',
+        classDays: batch.classDays ?? [],
+        mode: batch.mode,
+      });
+    }
+    return { batches: result };
+  }
+
   async sendEmailOtp(dto: StartAdmissionDto) {
     const email = dto.email.trim().toLowerCase();
     // Block admissions for emails that already have an account (no duplicate

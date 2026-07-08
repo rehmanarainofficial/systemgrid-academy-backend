@@ -27,6 +27,11 @@ export class PublicAdmissionsController {
     return this.admissionsService.validateReferralCode(dto.code);
   }
 
+  @Get('public/courses/:courseId/batches')
+  courseBatches(@Param('courseId') courseId: string) {
+    return this.admissionsService.getOpenBatchesForCourse(courseId);
+  }
+
   @Post('public/admissions/send-email-otp')
   sendEmailOtp(@Body() dto: StartAdmissionDto) {
     return this.admissionsService.sendEmailOtp(dto);
