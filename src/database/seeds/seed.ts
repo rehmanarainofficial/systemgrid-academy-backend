@@ -72,20 +72,28 @@ async function seed() {
   const settings = dataSource.getRepository(Setting);
   const auditLogs = dataSource.getRepository(AuditLog);
 
+  const resolveSeedPassword = (key: string, devFallback?: string) => {
+    const value = process.env[key]?.trim();
+    if (value) return value;
+    if (process.env.NODE_ENV !== 'production' && devFallback) return devFallback;
+    throw new Error(`${key} is required for seeding`);
+  };
+
   const adminEmail = process.env.SEED_ADMIN_EMAIL ?? 'admin@systemgrid.academy';
+  const adminPassword = resolveSeedPassword('SEED_ADMIN_PASSWORD', 'ChangeMe123!');
   const existingAdmin = await users.findOne({ where: { email: adminEmail } });
   await users.save(
     existingAdmin
       ? users.merge(existingAdmin, {
           name: process.env.SEED_ADMIN_NAME ?? 'SystemGrid Admin',
-          password: await bcrypt.hash(process.env.SEED_ADMIN_PASSWORD ?? 'Admin@123', 12),
+          password: await bcrypt.hash(adminPassword, 12),
           role: UserRole.Admin,
           isActive: true,
         })
       : users.create({
           name: process.env.SEED_ADMIN_NAME ?? 'SystemGrid Admin',
           email: adminEmail,
-          password: await bcrypt.hash(process.env.SEED_ADMIN_PASSWORD ?? 'Admin@123', 12),
+          password: await bcrypt.hash(adminPassword, 12),
           role: UserRole.Admin,
           isActive: true,
         }),
@@ -95,28 +103,33 @@ async function seed() {
     {
       name: 'SystemGrid Super Admin',
       email: 'superadmin@systemgrid.academy',
-      password: 'SuperAdmin@123',
+      passwordEnv: 'SUPERADMIN_PASSWORD',
+      devFallback: 'ChangeMe123!',
       role: UserRole.SuperAdmin,
     },
     {
       name: 'Admissions Staff',
       email: 'staff@systemgrid.academy',
-      password: 'Staff@123',
+      passwordEnv: 'STAFF_PASSWORD',
+      devFallback: 'ChangeMe123!',
       role: UserRole.Staff,
     },
   ]) {
     const existing = await users.findOne({ where: { email: account.email } });
+    const password = resolveSeedPassword(account.passwordEnv, account.devFallback);
     await users.save(
       existing
         ? users.merge(existing, {
             name: account.name,
-            password: await bcrypt.hash(account.password, 12),
+            password: await bcrypt.hash(password, 12),
             role: account.role,
             isActive: true,
           })
         : users.create({
-            ...account,
-            password: await bcrypt.hash(account.password, 12),
+            name: account.name,
+            email: account.email,
+            password: await bcrypt.hash(password, 12),
+            role: account.role,
             isActive: true,
           }),
     );
