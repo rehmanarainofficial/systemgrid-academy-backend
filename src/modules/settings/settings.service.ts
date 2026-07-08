@@ -22,7 +22,7 @@ const DEFAULT_SETTINGS = {
     website: 'https://academy.thesystemgrid.com',
   },
   whatsapp: {
-    number: '',
+    number: '923433133834',
     message: 'Assalam o Alaikum, I want to know more about SystemGrid Academy.',
     enabled: true,
   },

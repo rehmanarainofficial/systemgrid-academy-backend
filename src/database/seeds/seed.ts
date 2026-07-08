@@ -31,6 +31,9 @@ import {
 
 config();
 
+const ACADEMY_PHONE = '03433133834';
+const ACADEMY_PHONE_INTL = '+923433133834';
+
 const dataSource = new DataSource({
   type: 'postgres',
   host: process.env.DATABASE_HOST ?? 'localhost',
@@ -166,7 +169,7 @@ async function seed() {
         email: 'student@systemgrid.academy',
         password: await bcrypt.hash('Student@123', 12),
         role: UserRole.Student,
-        phone: '+923433133834',
+        phone: ACADEMY_PHONE_INTL,
         isActive: true,
       }),
     );
@@ -181,7 +184,7 @@ async function seed() {
       studentProfiles.create({
         user: studentUser,
         guardianName: 'Guardian',
-        guardianPhone: '+923009876543',
+        guardianPhone: ACADEMY_PHONE_INTL,
         address: 'Karachi, Pakistan',
         city: 'Karachi',
         educationLevel: 'intermediate',
@@ -193,7 +196,7 @@ async function seed() {
     await studentProfiles.save(
       studentProfiles.merge(studentProfile, {
         guardianName: studentProfile.guardianName ?? 'Guardian',
-        guardianPhone: studentProfile.guardianPhone ?? '+923009876543',
+        guardianPhone: studentProfile.guardianPhone ?? ACADEMY_PHONE_INTL,
         address: studentProfile.address ?? 'Karachi, Pakistan',
         city: studentProfile.city ?? 'Karachi',
         educationLevel: studentProfile.educationLevel ?? 'intermediate',
@@ -397,14 +400,14 @@ async function seed() {
     {
       name: 'Ahsan Rehman',
       email: 'ahsan.instructor@systemgrid.academy',
-      phone: '+923001112233',
+      phone: ACADEMY_PHONE_INTL,
       specialization: 'Full Stack Web Development',
       bio: 'Instructor record for SystemGrid Academy web and dashboard classes.',
     },
     {
       name: 'Sara Khan',
       email: 'sara.instructor@systemgrid.academy',
-      phone: '+923004445566',
+      phone: ACADEMY_PHONE_INTL,
       specialization: 'Design and Communication',
       bio: 'Instructor record for design, portfolio, and communication training.',
     },
@@ -480,16 +483,16 @@ async function seed() {
   }
 
   const leadSeeds = [
-    ['Ali Raza', 'ali.raza@example.com', '03001230001', 'Karachi', 'Web Development', 'free_demo_class_page', 'new'],
-    ['Hira Khan', 'hira.khan@example.com', '03001230002', 'Lahore', 'Graphic Designing', 'admissions_page', 'contacted'],
-    ['Usman Tariq', 'usman.tariq@example.com', '03001230003', 'Islamabad', 'App Development', 'course_detail_page', 'converted'],
-    ['Areeba Ahmed', 'areeba.ahmed@example.com', '03001230004', 'Karachi', 'English for IT', 'contact_page', 'new'],
-    ['Hamza Shah', 'hamza.shah@example.com', '03001230005', 'Hyderabad', 'Web Development', 'website', 'contacted'],
-    ['Maham Noor', 'maham.noor@example.com', '03001230006', 'Rawalpindi', 'App Development', 'free_demo_class_page', 'new'],
-    ['Saad Malik', 'saad.malik@example.com', '03001230007', 'Multan', 'Web Development', 'admissions_page', 'rejected'],
-    ['Iqra Fatima', 'iqra.fatima@example.com', '03001230008', 'Faisalabad', 'Graphic Designing', 'website', 'contacted'],
-    ['Daniyal Qureshi', 'daniyal.q@example.com', '03001230009', 'Karachi', 'App Development', 'course_detail_page', 'new'],
-    ['Zoya Siddiqui', 'zoya.s@example.com', '03001230010', 'Peshawar', 'English for IT', 'contact_page', 'converted'],
+    ['Ali Raza', 'ali.raza@example.com', ACADEMY_PHONE, 'Karachi', 'Web Development', 'free_demo_class_page', 'new'],
+    ['Hira Khan', 'hira.khan@example.com', ACADEMY_PHONE, 'Lahore', 'Graphic Designing', 'admissions_page', 'contacted'],
+    ['Usman Tariq', 'usman.tariq@example.com', ACADEMY_PHONE, 'Islamabad', 'App Development', 'course_detail_page', 'converted'],
+    ['Areeba Ahmed', 'areeba.ahmed@example.com', ACADEMY_PHONE, 'Karachi', 'English for IT', 'contact_page', 'new'],
+    ['Hamza Shah', 'hamza.shah@example.com', ACADEMY_PHONE, 'Hyderabad', 'Web Development', 'website', 'contacted'],
+    ['Maham Noor', 'maham.noor@example.com', ACADEMY_PHONE, 'Rawalpindi', 'App Development', 'free_demo_class_page', 'new'],
+    ['Saad Malik', 'saad.malik@example.com', ACADEMY_PHONE, 'Multan', 'Web Development', 'admissions_page', 'rejected'],
+    ['Iqra Fatima', 'iqra.fatima@example.com', ACADEMY_PHONE, 'Faisalabad', 'Graphic Designing', 'website', 'contacted'],
+    ['Daniyal Qureshi', 'daniyal.q@example.com', ACADEMY_PHONE, 'Karachi', 'App Development', 'course_detail_page', 'new'],
+    ['Zoya Siddiqui', 'zoya.s@example.com', ACADEMY_PHONE, 'Peshawar', 'English for IT', 'contact_page', 'converted'],
   ] as const;
 
   for (const [name, email, phone, city, courseInterest, source, status] of leadSeeds) {
@@ -514,15 +517,15 @@ async function seed() {
   }
 
   const studentSeeds = [
-    ['Ayesha Noor', 'ayesha.noor@student.test', '03110000001', 'Karachi', 'active'],
-    ['Bilal Ahmed', 'bilal.ahmed@student.test', '03110000002', 'Lahore', 'active'],
-    ['Eman Ali', 'eman.ali@student.test', '03110000003', 'Islamabad', 'active'],
-    ['Fahad Khan', 'fahad.khan@student.test', '03110000004', 'Karachi', 'inactive'],
-    ['Ghazal Malik', 'ghazal.malik@student.test', '03110000005', 'Multan', 'active'],
-    ['Hassan Raza', 'hassan.raza@student.test', '03110000006', 'Hyderabad', 'graduated'],
-    ['Inaya Tariq', 'inaya.tariq@student.test', '03110000007', 'Faisalabad', 'active'],
-    ['Junaid Shah', 'junaid.shah@student.test', '03110000008', 'Peshawar', 'dropped'],
-    ['Komal Fatima', 'komal.fatima@student.test', '03110000009', 'Rawalpindi', 'active'],
+    ['Ayesha Noor', 'ayesha.noor@student.test', ACADEMY_PHONE, 'Karachi', 'active'],
+    ['Bilal Ahmed', 'bilal.ahmed@student.test', ACADEMY_PHONE, 'Lahore', 'active'],
+    ['Eman Ali', 'eman.ali@student.test', ACADEMY_PHONE, 'Islamabad', 'active'],
+    ['Fahad Khan', 'fahad.khan@student.test', ACADEMY_PHONE, 'Karachi', 'inactive'],
+    ['Ghazal Malik', 'ghazal.malik@student.test', ACADEMY_PHONE, 'Multan', 'active'],
+    ['Hassan Raza', 'hassan.raza@student.test', ACADEMY_PHONE, 'Hyderabad', 'graduated'],
+    ['Inaya Tariq', 'inaya.tariq@student.test', ACADEMY_PHONE, 'Faisalabad', 'active'],
+    ['Junaid Shah', 'junaid.shah@student.test', ACADEMY_PHONE, 'Peshawar', 'dropped'],
+    ['Komal Fatima', 'komal.fatima@student.test', ACADEMY_PHONE, 'Rawalpindi', 'active'],
   ] as const;
 
   for (const [name, email, phone, city, status] of studentSeeds) {
@@ -1004,7 +1007,7 @@ async function seed() {
     {
       key: 'whatsapp',
       value: {
-        number: '',
+        number: '923433133834',
         enabled: true,
         message: 'Assalam o Alaikum, I want to know more about SystemGrid Academy.',
       },
