@@ -41,18 +41,28 @@ WHERE student_id IN (SELECT id FROM demo_student_profile_ids);
 DELETE FROM attendance
 WHERE student_id IN (SELECT id FROM demo_student_profile_ids);
 
-DELETE FROM payments
+DELETE FROM certificates
 WHERE student_id IN (SELECT id FROM demo_student_profile_ids);
 
 DELETE FROM invoices
 WHERE student_id IN (SELECT id FROM demo_student_profile_ids)
-   OR admission_application_id IN (SELECT id FROM demo_admission_ids);
+   OR admission_application_id IN (SELECT id FROM demo_admission_ids)
+   OR payment_id IN (
+     SELECT p.id
+     FROM payments p
+     WHERE p.student_id IN (SELECT id FROM demo_student_profile_ids)
+   );
+
+DELETE FROM payments
+WHERE student_id IN (SELECT id FROM demo_student_profile_ids);
 
 DELETE FROM fee_plans
-WHERE student_id IN (SELECT id FROM demo_student_profile_ids);
-
-DELETE FROM certificates
-WHERE student_id IN (SELECT id FROM demo_student_profile_ids);
+WHERE student_id IN (SELECT id FROM demo_student_profile_ids)
+   OR enrollment_id IN (
+     SELECT e.id
+     FROM enrollments e
+     WHERE e.student_id IN (SELECT id FROM demo_student_profile_ids)
+   );
 
 DELETE FROM enrollments
 WHERE student_id IN (SELECT id FROM demo_student_profile_ids);
