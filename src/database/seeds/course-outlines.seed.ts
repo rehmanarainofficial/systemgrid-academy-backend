@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { config } from 'dotenv';
 import { DataSource, In } from 'typeorm';
 import {
   academyEntities,
@@ -12,6 +13,8 @@ import {
   CourseTool,
   CourseTopic,
 } from '../entities';
+
+config();
 
 type QuarterSeed = {
   title: string;
