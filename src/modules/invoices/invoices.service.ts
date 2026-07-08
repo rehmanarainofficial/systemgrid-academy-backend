@@ -11,19 +11,29 @@ export class InvoicesService {
 
   async findAll(query: AdminInvoicesQueryDto) {
     const repository = this.dataSource.getRepository(Invoice);
+    // Invoices can originate from a recorded Payment (post-enrollment) OR from an
+    // admission (created at submit time, before any Payment exists). Join both
+    // paths + the admission application so neither one crashes the mapper.
     const builder = repository.createQueryBuilder('invoice')
       .leftJoinAndSelect('invoice.payment', 'payment')
-      .leftJoinAndSelect('payment.student', 'student')
+      .leftJoinAndSelect('payment.student', 'pstudent')
+      .leftJoinAndSelect('pstudent.user', 'puser')
+      .leftJoinAndSelect('payment.enrollment', 'penrollment')
+      .leftJoinAndSelect('penrollment.course', 'pcourse')
+      .leftJoinAndSelect('penrollment.batch', 'pbatch')
+      .leftJoinAndSelect('invoice.student', 'student')
       .leftJoinAndSelect('student.user', 'user')
-      .leftJoinAndSelect('payment.enrollment', 'enrollment')
+      .leftJoinAndSelect('invoice.enrollment', 'enrollment')
       .leftJoinAndSelect('enrollment.course', 'course')
       .leftJoinAndSelect('enrollment.batch', 'batch')
+      .leftJoinAndSelect('invoice.admissionApplication', 'application')
+      .leftJoinAndSelect('application.course', 'appcourse')
       .orderBy('invoice.issuedAt', 'DESC');
     if (query.search?.trim()) {
       const search = `%${query.search.trim()}%`;
-      builder.andWhere('(invoice.invoiceNumber ILIKE :search OR user.name ILIKE :search OR user.email ILIKE :search OR course.title ILIKE :search)', { search });
+      builder.andWhere('(invoice.invoiceNumber ILIKE :search OR puser.name ILIKE :search OR puser.email ILIKE :search OR user.name ILIKE :search OR user.email ILIKE :search OR application.name ILIKE :search OR application.email ILIKE :search OR pcourse.title ILIKE :search OR course.title ILIKE :search OR appcourse.title ILIKE :search)', { search });
     }
-    if (query.studentId) builder.andWhere('student.id = :studentId', { studentId: query.studentId });
+    if (query.studentId) builder.andWhere('(pstudent.id = :studentId OR student.id = :studentId)', { studentId: query.studentId });
     if (query.status !== 'all') builder.andWhere('invoice.status = :status', { status: query.status });
     if (query.dateFrom) builder.andWhere('invoice.issuedAt >= :dateFrom', { dateFrom: query.dateFrom });
     if (query.dateTo) builder.andWhere('invoice.issuedAt <= :dateTo', { dateTo: query.dateTo });
@@ -47,26 +57,50 @@ export class InvoicesService {
   async findOne(id: string) {
     const invoice = await this.dataSource.getRepository(Invoice).findOne({
       where: { id },
-      relations: { payment: { student: { user: true }, enrollment: { course: true, batch: true } } },
+      relations: {
+        payment: { student: { user: true }, enrollment: { course: true, batch: true } },
+        student: { user: true },
+        enrollment: { course: true, batch: true },
+        admissionApplication: { course: true },
+      },
     });
     if (!invoice) throw new NotFoundException('Invoice not found');
+    const resolved = this.resolve(invoice);
     return {
       invoice: {
-      id: invoice.id,
-      invoiceNumber: invoice.invoiceNumber,
-      amount: Number(invoice.amount),
-      issuedAt: invoice.issuedAt,
-      status: invoice.status,
-      pdfUrl: invoice.pdfUrl ?? '',
-      studentName: invoice.payment.student.user.name,
-      studentEmail: invoice.payment.student.user.email,
-      courseTitle: invoice.payment.enrollment.course.title,
-      batchTitle: invoice.payment.enrollment.batch?.title ?? '',
-      paymentDate: invoice.payment.paymentDate,
-      paymentMethod: invoice.payment.method,
-      notes: '',
-      academy: { name: 'SystemGrid Academy', website: 'academy.thesystemgrid.com', email: 'academy@thesystemgrid.com', city: 'Karachi, Pakistan' },
+        id: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        amount: Number(invoice.amount),
+        issuedAt: invoice.issuedAt,
+        status: invoice.status,
+        pdfUrl: invoice.pdfUrl ?? '',
+        studentName: resolved.studentName,
+        studentEmail: resolved.studentEmail,
+        courseTitle: resolved.courseTitle,
+        batchTitle: resolved.batchTitle,
+        paymentDate: resolved.paymentDate,
+        paymentMethod: resolved.paymentMethod,
+        notes: '',
+        academy: { name: 'SystemGrid Academy', website: 'academy.thesystemgrid.com', email: 'academy@thesystemgrid.com', city: 'Karachi, Pakistan' },
       },
+    };
+  }
+
+  // Pull display fields from whichever source the invoice actually has: a
+  // recorded payment, a direct student/enrollment link, or the admission form.
+  private resolve(invoice: Invoice) {
+    const student = invoice.payment?.student ?? invoice.student ?? undefined;
+    const enrollment = invoice.payment?.enrollment ?? invoice.enrollment ?? undefined;
+    const application = invoice.admissionApplication ?? undefined;
+    return {
+      studentId: student?.id ?? '',
+      studentName: student?.user?.name ?? application?.name ?? 'Admission applicant',
+      studentEmail: student?.user?.email ?? application?.email ?? '',
+      courseTitle: enrollment?.course?.title ?? application?.course?.title ?? '',
+      batchTitle: enrollment?.batch?.title ?? '',
+      paymentId: invoice.payment?.id ?? '',
+      paymentDate: invoice.payment?.paymentDate ?? null,
+      paymentMethod: invoice.payment?.method ?? null,
     };
   }
 
@@ -113,15 +147,16 @@ export class InvoicesService {
   }
 
   private mapList(invoice: Invoice) {
+    const resolved = this.resolve(invoice);
     return {
       id: invoice.id,
       invoiceNumber: invoice.invoiceNumber,
-      studentId: invoice.payment.student.id,
-      studentName: invoice.payment.student.user.name,
-      studentEmail: invoice.payment.student.user.email,
-      courseTitle: invoice.payment.enrollment.course.title,
-      batchTitle: invoice.payment.enrollment.batch?.title ?? '',
-      paymentId: invoice.payment.id,
+      studentId: resolved.studentId,
+      studentName: resolved.studentName,
+      studentEmail: resolved.studentEmail,
+      courseTitle: resolved.courseTitle,
+      batchTitle: resolved.batchTitle,
+      paymentId: resolved.paymentId,
       amount: Number(invoice.amount),
       issuedAt: invoice.issuedAt,
       status: invoice.status,

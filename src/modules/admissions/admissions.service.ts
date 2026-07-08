@@ -7,7 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
 import { createHmac, randomBytes } from 'crypto';
-import { Brackets, DataSource, EntityManager } from 'typeorm';
+import { Brackets, DataSource, EntityManager, In } from 'typeorm';
 import { UserRole } from '../../common/enums/user-role.enum';
 import {
   ensureWalletAndReferralCode,
