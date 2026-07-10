@@ -3,11 +3,13 @@ import {
   BadRequestException,
   Injectable,
   InternalServerErrorException,
+  Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'crypto';
-import { extname } from 'path';
+import { mkdir, writeFile } from 'fs/promises';
+import { extname, join } from 'path';
 import { Repository } from 'typeorm';
 import { AuditLog, User } from '../../database/entities';
 import { UploadResourceDto } from './dto/upload-resource.dto';
@@ -40,6 +42,7 @@ export type UploadedFileData = {
 
 @Injectable()
 export class UploadsService {
+  private readonly logger = new Logger(UploadsService.name);
   private s3Client?: S3Client;
 
   constructor(
@@ -97,14 +100,43 @@ export class UploadsService {
     return this.save(file, { module: folder, type: 'image' }, actorId);
   }
 
-  // All uploads go to AWS S3. Local disk storage is intentionally not
-  // supported so no files are written to (or served from) the server.
   private async persist(
     file: UploadedFileData,
     folder: string,
     fileName: string,
   ) {
+    const driver = (
+      this.configService.get<string>('STORAGE_DRIVER') ?? 'local'
+    ).toLowerCase();
+    if (driver === 'local') {
+      return this.persistToLocal(file, folder, fileName);
+    }
     return this.persistToS3(file, folder, fileName);
+  }
+
+  private async persistToLocal(
+    file: UploadedFileData,
+    folder: string,
+    fileName: string,
+  ) {
+    const uploadDir = this.configService.get<string>('UPLOAD_DIR') ?? 'uploads';
+    const targetDir = join(process.cwd(), uploadDir, folder);
+    await mkdir(targetDir, { recursive: true });
+    await writeFile(join(targetDir, fileName), file.buffer);
+
+    const baseUrl = this.configService
+      .get<string>('BACKEND_PUBLIC_URL')
+      ?.replace(/\/$/, '');
+    if (!baseUrl) {
+      throw new InternalServerErrorException(
+        'BACKEND_PUBLIC_URL is required when STORAGE_DRIVER=local',
+      );
+    }
+
+    const encodedPath = [folder, fileName]
+      .map((segment) => encodeURIComponent(segment))
+      .join('/');
+    return `${baseUrl}/uploads/${encodedPath}`;
   }
 
   private async persistToS3(
@@ -119,15 +151,23 @@ export class UploadsService {
     }
 
     const key = `${folder}/${fileName}`;
-    await this.getS3Client(region).send(
-      new PutObjectCommand({
-        Bucket: bucket,
-        Key: key,
-        Body: file.buffer,
-        ContentType: file.mimetype,
-        CacheControl: 'public, max-age=31536000, immutable',
-      }),
-    );
+    try {
+      await this.getS3Client(region).send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: key,
+          Body: file.buffer,
+          ContentType: file.mimetype,
+          CacheControl: 'public, max-age=31536000, immutable',
+        }),
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'unknown error';
+      this.logger.error(`S3 upload failed for ${key}: ${message}`);
+      throw new InternalServerErrorException(
+        'File upload failed. Verify AWS_S3_BUCKET, AWS_REGION, and S3 credentials or IAM permissions.',
+      );
+    }
 
     const publicBaseUrl =
       this.configService

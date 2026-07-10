@@ -16,6 +16,7 @@
     "seed:blogs": "ts-node -r tsconfig-paths/register src/database/seeds/blog-seed.ts",
     "seed:courses": "ts-node -r tsconfig-paths/register src/database/seeds/course-outlines.seed.ts",
     "seed:learning-paths": "ts-node -r tsconfig-paths/register src/database/seeds/learning-paths.seed.ts",
+    "seed:sync": "npm run migration:run && npm run seed:courses && npm run seed:learning-paths",
     "production:cleanup-sql": "cat scripts/production-cleanup.sql",
     "production:reset-passwords": "ts-node -r tsconfig-paths/register scripts/reset-admin-passwords.ts",
     "production:generate-jwt-secrets": "ts-node scripts/generate-jwt-secrets.ts",

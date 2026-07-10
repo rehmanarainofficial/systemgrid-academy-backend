@@ -7,6 +7,8 @@ types.setTypeParser(1114, (value: string) =>
   new Date(`${value.replace(' ', 'T')}Z`),
 );
 
+import { existsSync, mkdirSync } from 'fs';
+import { join } from 'path';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -25,9 +27,19 @@ async function bootstrap() {
     .map((origin) => origin.trim())
     .filter(Boolean);
   const apiPrefix = process.env.API_PREFIX ?? 'api/v1';
+  const uploadDir = process.env.UPLOAD_DIR ?? 'uploads';
   const expressApp = app.getHttpAdapter().getInstance();
 
   expressApp.disable('etag');
+
+  if (!existsSync(uploadDir)) {
+    mkdirSync(uploadDir, { recursive: true });
+  }
+  app.useStaticAssets(join(process.cwd(), uploadDir), {
+    prefix: '/uploads',
+    maxAge: '1y',
+    immutable: true,
+  });
 
   if (process.env.TRUST_PROXY === 'true') {
     expressApp.set('trust proxy', 1);

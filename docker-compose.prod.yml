@@ -50,6 +50,26 @@ services:
     networks:
       - systemgrid_academy_network
 
+  catalog-sync:
+    image: node:24-alpine
+    profiles:
+      - tools
+    working_dir: /app
+    volumes:
+      - .:/app
+    env_file:
+      - .env.docker
+    environment:
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - systemgrid_academy_network
+    command: sh -c "npm ci && npm run seed:sync"
+
 volumes:
   systemgrid_academy_postgres_data:
     driver: local
