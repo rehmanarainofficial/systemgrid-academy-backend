@@ -38,18 +38,26 @@ export class InstructorsService {
   }
 
   async create(dto: CreateInstructorDto, actorId: string) {
-    if (dto.email) await this.ensureEmail(dto.email);
+    await this.ensureEmail(dto.email);
     const loginUser = await this.provisionLoginUser(dto);
-    const instructor = await this.dataSource.getRepository(Instructor).save({ name: dto.name.trim(), email: dto.email?.trim().toLowerCase() || undefined, phone: dto.phone.trim(), specialization: dto.specialization.trim(), bio: dto.bio?.trim() || undefined, imageUrl: dto.imageUrl?.trim() || undefined, isActive: dto.isActive ?? true, user: loginUser ?? undefined });
+    const instructor = await this.dataSource.getRepository(Instructor).save({
+      name: dto.name.trim(),
+      email: dto.email.trim().toLowerCase(),
+      phone: dto.phone.trim(),
+      specialization: dto.specialization.trim(),
+      bio: dto.bio.trim(),
+      imageUrl: dto.imageUrl?.trim() || undefined,
+      isActive: dto.isActive ?? true,
+      user: loginUser,
+    });
     await this.log(actorId, 'create', instructor.id, loginUser ? { loginAccount: loginUser.id } : undefined);
     return this.findOne(instructor.id);
   }
 
   // Creates (or promotes an existing) user account with the Instructor role so
   // the instructor can log into the instructor portal. Requires email+password.
-  private async provisionLoginUser(dto: CreateInstructorDto): Promise<User | null> {
-    const email = dto.email?.trim().toLowerCase();
-    if (!email || !dto.password) return null;
+  private async provisionLoginUser(dto: CreateInstructorDto): Promise<User> {
+    const email = dto.email.trim().toLowerCase();
     const users = this.dataSource.getRepository(User);
     const existing = await users.findOne({ where: { email } });
     if (existing) {
