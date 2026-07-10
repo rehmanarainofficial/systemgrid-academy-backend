@@ -33,6 +33,62 @@ export class AdminCourseModuleDto {
   sortOrder: number;
 }
 
+export class AdminCourseTopicDto {
+  @IsOptional()
+  @IsString()
+  id?: string;
+
+  @IsString()
+  @MinLength(2)
+  @MaxLength(220)
+  title: string;
+}
+
+export class AdminCourseOutlineModuleDto {
+  @IsOptional()
+  @IsString()
+  id?: string;
+
+  @IsString()
+  @MinLength(2)
+  @MaxLength(180)
+  title: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => AdminCourseTopicDto)
+  topics: AdminCourseTopicDto[];
+}
+
+export class AdminCourseQuarterDto {
+  @IsOptional()
+  @IsString()
+  id?: string;
+
+  @IsString()
+  @MinLength(2)
+  @MaxLength(180)
+  title: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  subtitle?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => AdminCourseOutlineModuleDto)
+  modules: AdminCourseOutlineModuleDto[];
+}
+
 export class CreateAdminCourseDto {
   @IsString()
   @MinLength(2)
@@ -102,4 +158,10 @@ export class CreateAdminCourseDto {
   @ValidateNested({ each: true })
   @Type(() => AdminCourseModuleDto)
   modules?: AdminCourseModuleDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => AdminCourseQuarterDto)
+  outline?: AdminCourseQuarterDto[];
 }

@@ -26,7 +26,7 @@ import {
   User,
 } from '../../database/entities';
 import { AdminCoursesQueryDto } from './dto/admin-courses-query.dto';
-import { CreateAdminCourseDto } from './dto/create-admin-course.dto';
+import { CreateAdminCourseDto, AdminCourseQuarterDto } from './dto/create-admin-course.dto';
 import { UpdateAdminCourseDto } from './dto/update-admin-course.dto';
 
 @Injectable()
@@ -194,7 +194,8 @@ export class CoursesService {
     });
     if (!course) throw new NotFoundException('Course not found');
     const [mapped] = await this.attachCourseMetrics([course]);
-    return mapped;
+    const outline = await this.loadAdminOutline(id);
+    return { ...mapped, outline, hasOutline: outline.length > 0 };
   }
 
   async createAdminCourse(dto: CreateAdminCourseDto, actorId: string) {
@@ -212,6 +213,9 @@ export class CoursesService {
         level: dto.level,
         duration: dto.duration,
         durationUnit: dto.durationUnit,
+        durationMonths: this.durationMonthsFromValues(dto.duration, dto.durationUnit),
+        durationLabel: `${this.durationMonthsFromValues(dto.duration, dto.durationUnit)} Months`,
+        monthlyFee: 5000,
         mode: dto.mode,
         language: dto.language,
         fee: dto.fee,
@@ -219,7 +223,9 @@ export class CoursesService {
         isFeatured: dto.isFeatured,
         isPublished: dto.isPublished,
       }));
-      if (dto.modules?.length) {
+      if (dto.outline?.length) {
+        await this.syncOutline(manager, created, dto.outline);
+      } else if (dto.modules?.length) {
         await manager.save(CourseModule, dto.modules.map((module) => manager.create(CourseModule, {
           course: created,
           title: module.title.trim(),
@@ -248,9 +254,15 @@ export class CoursesService {
     for (const field of fields) {
       if (dto[field] !== undefined) (course as unknown as Record<string, unknown>)[field] = dto[field];
     }
+    if (dto.duration !== undefined || dto.durationUnit !== undefined) {
+      course.durationMonths = this.durationMonths(course);
+      course.durationLabel = `${course.durationMonths} Months`;
+    }
     if (dto.techStack !== undefined) course.techStack = this.cleanTechStack(dto.techStack);
     await this.coursesRepository.save(course);
-    if (dto.modules) await this.syncModules(course, dto.modules);
+    if (dto.outline) {
+      await this.dataSource.transaction((manager) => this.syncOutline(manager, course, dto.outline!));
+    } else if (dto.modules) await this.syncModules(course, dto.modules);
     await this.logAction(actorId, 'update', id, { fields: Object.keys(dto) });
     return this.findAdminCourse(id);
   }
@@ -412,6 +424,109 @@ export class CoursesService {
       if (lessonCount) throw new ConflictException('Modules with lessons cannot be removed. Move or delete their lessons first.');
       await repository.remove(removed);
     }
+  }
+
+  private async loadAdminOutline(courseId: string) {
+    const [quarters, outlineModules, topics] = await Promise.all([
+      this.dataSource.getRepository(CourseQuarter).find({
+        where: { course: { id: courseId } },
+        order: { sortOrder: 'ASC' },
+      }),
+      this.dataSource.getRepository(CourseOutlineModule).find({
+        where: { course: { id: courseId } },
+        relations: { quarter: true },
+        order: { sortOrder: 'ASC' },
+      }),
+      this.dataSource.getRepository(CourseTopic).find({
+        where: { course: { id: courseId } },
+        relations: { module: true, quarter: true },
+        order: { sortOrder: 'ASC' },
+      }),
+    ]);
+    if (!quarters.length) return [];
+    const topicsByModuleId = new Map<string, CourseTopic[]>();
+    for (const topic of topics) {
+      const moduleId = topic.module.id;
+      topicsByModuleId.set(moduleId, [...(topicsByModuleId.get(moduleId) ?? []), topic]);
+    }
+    const modulesByQuarterId = new Map<string, CourseOutlineModule[]>();
+    for (const module of outlineModules) {
+      const quarterId = module.quarter.id;
+      modulesByQuarterId.set(quarterId, [...(modulesByQuarterId.get(quarterId) ?? []), module]);
+    }
+    return quarters.map((quarter) => ({
+      id: quarter.id,
+      title: quarter.title,
+      subtitle: quarter.subtitle ?? '',
+      description: quarter.description ?? '',
+      modules: (modulesByQuarterId.get(quarter.id) ?? []).map((module) => ({
+        id: module.id,
+        title: module.title,
+        description: module.description ?? '',
+        topics: (topicsByModuleId.get(module.id) ?? []).map((topic) => ({
+          id: topic.id,
+          title: topic.title,
+        })),
+      })),
+    }));
+  }
+
+  private async syncOutline(
+    manager: DataSource['manager'],
+    course: Course,
+    outline: AdminCourseQuarterDto[],
+  ) {
+    await manager.delete(CourseTopic, { course: { id: course.id } });
+    await manager.delete(CourseOutlineModule, { course: { id: course.id } });
+    await manager.delete(CourseQuarter, { course: { id: course.id } });
+
+    for (const [quarterIndex, quarterDto] of outline.entries()) {
+      const quarter = await manager.save(
+        CourseQuarter,
+        manager.create(CourseQuarter, {
+          course,
+          quarterNumber: quarterIndex + 1,
+          title: quarterDto.title.trim(),
+          subtitle: quarterDto.subtitle?.trim() || undefined,
+          description: quarterDto.description?.trim() || undefined,
+          durationMonths: 3,
+          sortOrder: quarterIndex + 1,
+        }),
+      );
+
+      for (const [moduleIndex, moduleDto] of (quarterDto.modules ?? []).entries()) {
+        const outlineModule = await manager.save(
+          CourseOutlineModule,
+          manager.create(CourseOutlineModule, {
+            course,
+            quarter,
+            title: moduleDto.title.trim(),
+            description: moduleDto.description?.trim() || undefined,
+            sortOrder: moduleIndex + 1,
+          }),
+        );
+
+        for (const [topicIndex, topicDto] of (moduleDto.topics ?? []).entries()) {
+          if (!topicDto.title?.trim()) continue;
+          await manager.save(
+            CourseTopic,
+            manager.create(CourseTopic, {
+              course,
+              quarter,
+              module: outlineModule,
+              title: topicDto.title.trim(),
+              description: topicDto.title.trim(),
+              level: 'beginner',
+              sortOrder: topicIndex + 1,
+            }),
+          );
+        }
+      }
+    }
+  }
+
+  private durationMonthsFromValues(duration: number, durationUnit: 'weeks' | 'months') {
+    return durationUnit === 'months' ? Math.max(1, duration) : Math.max(1, Math.ceil(duration / 4));
   }
 
   private async logAction(actorId: string, action: string, recordId: string, metadata?: Record<string, unknown>) {

@@ -18,6 +18,12 @@ export class AdmissionEmailService {
 
   constructor(private readonly configService: ConfigService) {}
 
+  private frontendUrl(path = '') {
+    const base = (this.configService.get<string>('FRONTEND_URL') ?? 'https://academy.thesystemgrid.com').replace(/\/$/, '');
+    if (!path) return base;
+    return `${base}${path.startsWith('/') ? path : `/${path}`}`;
+  }
+
   async sendEmailVerificationOtp(email: string, otp: string) {
     await this.send({
       to: email,
@@ -58,7 +64,7 @@ export class AdmissionEmailService {
         `Email: ${email}`,
         `Password: ${password}`,
         '',
-        'Login URL: https://academy.thesystemgrid.com/login',
+        `Login URL: ${this.frontendUrl('/login')}`,
         '',
         'For your security, we recommend changing your password after your first login.',
         '',
@@ -198,7 +204,7 @@ export class AdmissionEmailService {
                     <div style="margin:24px 0;padding:16px;border-radius:18px;background:#f8fafc;">
                       <p style="margin:0 0 8px;font-size:13px;line-height:1.7;color:#475569;font-weight:600;">HOW TO LOGIN</p>
                       <ol style="margin:0;padding-left:20px;font-size:14px;line-height:1.7;color:#4b5563;">
-                        <li style="margin-bottom:8px;">Visit <a href="https://academy.thesystemgrid.com/login" style="color:#0071e3;text-decoration:underline;">academy.thesystemgrid.com/login</a></li>
+                        <li style="margin-bottom:8px;">Visit <a href="${this.frontendUrl('/login')}" style="color:#0071e3;text-decoration:underline;">${this.frontendUrl('/login').replace(/^https?:\/\//, '')}</a></li>
                         <li style="margin-bottom:8px;">Enter your email address and password above</li>
                         <li style="margin-bottom:8px;">Click "Login" to access your student portal</li>
                         <li>For your security, we recommend changing your password after first login</li>
@@ -222,7 +228,7 @@ export class AdmissionEmailService {
   }
 
   private referralRewardTemplate(name: string, formattedAmount: string) {
-    const walletUrl = 'https://systemgrid-academy.com/student/wallet';
+    const walletUrl = this.frontendUrl('/student/wallet');
     return `
       <div style="margin:0;padding:0;background:#f4f7fb;font-family:Inter,Arial,sans-serif;color:#111827;">
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f7fb;padding:32px 16px;">

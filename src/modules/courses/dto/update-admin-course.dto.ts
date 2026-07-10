@@ -13,7 +13,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { AdminCourseModuleDto } from './create-admin-course.dto';
+import { AdminCourseModuleDto, AdminCourseQuarterDto } from './create-admin-course.dto';
 
 export class UpdateAdminCourseDto {
   @IsOptional() @IsString() @MinLength(2) @MaxLength(160) title?: string;
@@ -33,4 +33,5 @@ export class UpdateAdminCourseDto {
   @IsOptional() @IsBoolean() isFeatured?: boolean;
   @IsOptional() @IsBoolean() isPublished?: boolean;
   @IsOptional() @ValidateNested({ each: true }) @Type(() => AdminCourseModuleDto) modules?: AdminCourseModuleDto[];
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => AdminCourseQuarterDto) outline?: AdminCourseQuarterDto[];
 }
