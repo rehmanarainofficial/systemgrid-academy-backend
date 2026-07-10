@@ -38,6 +38,12 @@ import { UpdateStudentProfileDto } from './dto/update-student-profile.dto';
 import type { UploadedFileData } from '../uploads/uploads.service';
 import { UploadsService } from '../uploads/uploads.service';
 import { AdminAlertsService } from '../notifications/admin-alerts.service';
+import {
+  buildFeeSchedule,
+  getInstallmentAmount,
+  resolveBillingCycle,
+  resolveRecurringBalances,
+} from '../../common/fees/fee-schedule.util';
 
 const dayIndexes: Record<string, number> = {
   sunday: 0,
@@ -121,6 +127,8 @@ export class StudentPortalService {
         email: student.user.email,
         phone: student.user.phone ?? '',
         city: student.city ?? '',
+        portalAccessSuspended: student.portalAccessSuspended,
+        portalSuspendedReason: student.portalSuspendedReason ?? null,
       },
       overview: {
         totalEnrolledCourses: enrollments.length,
@@ -137,6 +145,7 @@ export class StudentPortalService {
         : null,
       recentLessons,
       feeStatus,
+      feeReminder: await this.buildFeeReminder(student, enrollments),
       attendanceSummary: {
         present: attendanceSummary.present,
         absent: attendanceSummary.absent,
@@ -408,18 +417,13 @@ export class StudentPortalService {
     }
     const invoices = Array.from(invoiceById.values());
 
-    const totalPayable = feePlans.reduce(
-      (sum, item) => sum + Number(item.payableAmount ?? 0),
-      0,
-    );
+    const planBalances = feePlans.map((plan) => resolveRecurringBalances(plan));
+    const totalPayable = planBalances.reduce((sum, item) => sum + item.effectivePayable, 0);
     const paidAmount = feePlans.reduce(
       (sum, item) => sum + Number(item.paidAmount ?? 0),
       0,
     );
-    const pendingAmount = feePlans.reduce(
-      (sum, item) => sum + Number(item.pendingAmount ?? 0),
-      0,
-    );
+    const pendingAmount = planBalances.reduce((sum, item) => sum + item.effectivePending, 0);
     const discountAmount = feePlans.reduce(
       (sum, item) => sum + Number(item.discountAmount ?? 0),
       0,
@@ -433,22 +437,46 @@ export class StudentPortalService {
         discountAmount,
         status: pendingAmount <= 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid',
       },
-      feePlans: feePlans.map((plan) => ({
-        id: plan.id,
-        courseTitle: plan.enrollment.course.title,
-        batchTitle: plan.enrollment.batch?.title ?? 'Self-paced',
-        totalAmount: Number(plan.totalAmount),
-        discountAmount: Number(plan.discountAmount),
-        referralCouponDiscountAmount: Number(plan.referralCouponDiscountAmount ?? 0),
-        scholarshipDiscountAmount: Number(plan.scholarshipDiscountAmount ?? 0),
-        walletCreditUsed: Number(plan.walletCreditUsed ?? 0),
-        payableAmount: Number(plan.payableAmount),
-        paidAmount: Number(plan.paidAmount),
-        pendingAmount: Number(plan.pendingAmount),
-        status: plan.status,
-        installmentType: plan.installmentType,
-        dueDate: plan.dueDate ?? null,
-      })),
+      feePlans: await Promise.all(
+        feePlans.map(async (plan) => {
+          const schedule = await this.resolvePlanSchedule(plan, student);
+          const balances = resolveRecurringBalances(plan);
+          return {
+            id: plan.id,
+            courseTitle: plan.enrollment.course.title,
+            batchTitle: plan.enrollment.batch?.title ?? 'Self-paced',
+            totalAmount: Number(plan.totalAmount),
+            discountAmount: Number(plan.discountAmount),
+            referralCouponDiscountAmount: Number(plan.referralCouponDiscountAmount ?? 0),
+            scholarshipDiscountAmount: Number(plan.scholarshipDiscountAmount ?? 0),
+            walletCreditUsed: Number(plan.walletCreditUsed ?? 0),
+            payableAmount: balances.effectivePayable,
+            paidAmount: Number(plan.paidAmount),
+            pendingAmount: balances.effectivePending,
+            status: balances.effectivePending <= 0 && !balances.hasUpcomingInstallment
+              ? 'paid'
+              : Number(plan.paidAmount) > 0
+                ? 'partial'
+                : 'unpaid',
+            installmentType: plan.installmentType,
+            billingCycle: schedule.billingCycle,
+            dueDate: plan.dueDate ?? null,
+            nextDueDate: plan.nextDueDate ?? null,
+            installmentLabel: schedule.installmentLabel,
+            installmentAmount: schedule.installmentAmount,
+            installmentsPaid: schedule.installmentsPaid,
+            totalInstallments: schedule.totalInstallments,
+            windowOpensAt: schedule.windowOpensAt || null,
+            windowClosesAt: schedule.windowClosesAt || null,
+            canPay: schedule.canPay,
+            disabledReason: schedule.disabledReason,
+            isWindowOpen: schedule.isWindowOpen,
+            isReminderDay: schedule.isReminderDay,
+            hasPendingPayment: schedule.hasPendingPayment,
+            hasUpcomingInstallment: balances.hasUpcomingInstallment,
+          };
+        }),
+      ),
       payments: payments.map((payment) => {
         const invoice = invoiceMap.get(payment.id);
         return {
@@ -1404,10 +1432,9 @@ export class StudentPortalService {
 
     const wallet = await this.walletsRepository.findOne({ where: { student: { id: student.id } } });
     const walletBalance = Number(wallet?.balance ?? 0);
-    const monthlyFee = Number(plan.baseMonthlyFee ?? plan.enrollment.course.monthlyFee ?? 5000);
-    const installmentAmount = plan.installmentType === 'monthly'
-      ? monthlyFee
-      : Number(plan.pendingAmount);
+    const schedule = await this.resolvePlanSchedule(plan, student);
+    const balances = resolveRecurringBalances(plan);
+    const installmentAmount = schedule.installmentAmount;
     const walletCreditUsed = Math.min(walletBalance, installmentAmount);
     const cashPayable = Math.max(0, installmentAmount - walletCreditUsed);
 
@@ -1416,20 +1443,29 @@ export class StudentPortalService {
       courseTitle: plan.enrollment.course.title,
       batchTitle: plan.enrollment.batch?.title ?? 'Self-paced',
       installmentType: plan.installmentType,
+      billingCycle: schedule.billingCycle,
+      installmentLabel: schedule.installmentLabel,
       monthlyFee: installmentAmount,
       walletBalance,
       walletCreditUsed,
       cashPayable,
-      pendingCourseBalance: Number(plan.pendingAmount),
-      dueDate: plan.dueDate ?? plan.nextDueDate ?? null,
-      canPay: Number(plan.pendingAmount) > 0 && installmentAmount > 0,
+      pendingCourseBalance: balances.effectivePending,
+      dueDate: schedule.windowClosesAt || plan.dueDate || plan.nextDueDate || null,
+      windowOpensAt: schedule.windowOpensAt || null,
+      windowClosesAt: schedule.windowClosesAt || null,
+      canPay: schedule.canPay,
+      disabledReason: schedule.disabledReason,
+      installmentsPaid: schedule.installmentsPaid,
+      totalInstallments: schedule.totalInstallments,
     };
   }
 
   async submitFeePayment(userId: string, dto: SubmitStudentFeePaymentDto, file?: UploadedFileData) {
     const student = await this.getStudentProfile(userId);
     const preview = await this.getFeePaymentPreview(userId, dto.feePlanId);
-    if (!preview.canPay) throw new BadRequestException('This fee plan has no pending installment to pay');
+    if (!preview.canPay) {
+      throw new BadRequestException(preview.disabledReason ?? 'This fee installment is not payable right now');
+    }
 
     const existingPending = await this.paymentsRepository.findOne({
       where: {
@@ -1510,6 +1546,79 @@ export class StudentPortalService {
       cashPayable,
       walletCreditUsed,
     };
+  }
+
+  async dismissFeePopup(userId: string) {
+    const student = await this.getStudentProfile(userId);
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    student.feePopupDismissedUntil = tomorrow.toISOString().slice(0, 10);
+    await this.studentsRepository.save(student);
+    return { message: 'Reminder dismissed for today.' };
+  }
+
+  private async resolvePlanSchedule(plan: FeePlan, student: StudentProfile) {
+    const hasPendingPayment = await this.paymentsRepository.exist({
+      where: {
+        student: { id: student.id },
+        feePlan: { id: plan.id },
+        status: 'pending',
+      },
+    });
+    const billingCycle = resolveBillingCycle(plan);
+    const balances = resolveRecurringBalances(plan);
+    const installmentAmount = getInstallmentAmount({
+      ...plan,
+      enrollment: plan.enrollment,
+    });
+    return buildFeeSchedule({
+      anchorDate: plan.enrollment.enrolledAt,
+      billingCycle,
+      courseDurationMonths: plan.courseDurationMonths,
+      installmentsPaid: balances.installmentsPaid,
+      pendingAmount: balances.effectivePending > 0 ? balances.effectivePending : balances.hasUpcomingInstallment ? installmentAmount : 0,
+      installmentAmount,
+      hasPendingPayment,
+      portalAccessSuspended: student.portalAccessSuspended,
+    });
+  }
+
+  private async buildFeeReminder(student: StudentProfile, enrollments: Enrollment[]) {
+    if (student.feePopupDismissedUntil) {
+      const dismissedUntil = new Date(student.feePopupDismissedUntil);
+      if (new Date() < dismissedUntil) {
+        return null;
+      }
+    }
+
+    const enrollmentIds = enrollments.map((item) => item.id);
+    if (!enrollmentIds.length) return null;
+
+    const feePlans = await this.feePlansRepository
+      .createQueryBuilder('feePlan')
+      .leftJoinAndSelect('feePlan.enrollment', 'enrollment')
+      .leftJoinAndSelect('enrollment.course', 'course')
+      .where('enrollment.id IN (:...enrollmentIds)', { enrollmentIds })
+      .getMany();
+
+    for (const plan of feePlans) {
+      const schedule = await this.resolvePlanSchedule(plan, student);
+      if (schedule.isReminderDay || schedule.isWindowOpen) {
+        return {
+          feePlanId: plan.id,
+          courseTitle: plan.enrollment.course.title,
+          installmentLabel: schedule.installmentLabel,
+          amount: schedule.installmentAmount,
+          windowOpensAt: schedule.windowOpensAt,
+          windowClosesAt: schedule.windowClosesAt,
+          message: student.portalAccessSuspended
+            ? student.portalSuspendedReason ?? 'Your portal access is temporarily suspended.'
+            : `Your ${schedule.installmentLabel.toLowerCase()} fee of PKR ${schedule.installmentAmount.toLocaleString('en-PK')} is payable until ${schedule.windowClosesAt}.`,
+        };
+      }
+    }
+
+    return null;
   }
 
   private formatMode(mode: string) {

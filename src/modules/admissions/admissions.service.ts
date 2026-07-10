@@ -14,6 +14,10 @@ import {
   resolveReferrerCreditAmount,
 } from '../../common/referral/referral.util';
 import {
+  buildFeeSchedule,
+  getInstallmentAmount,
+} from '../../common/fees/fee-schedule.util';
+import {
   AdmissionApplication,
   AdmissionApplicationStatus,
   AuditLog,
@@ -667,25 +671,26 @@ export class AdmissionsService {
       status: 'active',
       progressPercentage: 0,
     }));
-    const isMonthly = application.pricingPlanType === 'monthly';
+    const billingCycle = application.pricingPlanType;
+    const isMonthly = billingCycle === 'monthly';
+    const isQuarterly = billingCycle === 'quarterly';
+    const isRecurring = isMonthly || isQuarterly;
     const courseDurationMonths = this.pricingService.durationMonths(application.course);
     const monthlyFee = Number(application.course.monthlyFee || 5000);
     const firstPayment = Number(application.finalPayableAmount);
-    const fullCoursePayable = isMonthly
+    const fullCoursePayable = isRecurring
       ? monthlyFee * courseDurationMonths
       : Number(application.finalPayableAmount);
-    const nextDue = new Date();
-    nextDue.setMonth(nextDue.getMonth() + 1);
 
-    const plan = await manager.save(FeePlan, manager.create(FeePlan, {
+    const planDraft = {
       enrollment,
       student,
       course: application.course,
-      pricingType: application.pricingPlanType,
-      billingCycle: application.pricingPlanType,
+      pricingType: billingCycle,
+      billingCycle,
       courseDurationMonths,
       baseMonthlyFee: monthlyFee,
-      totalAmount: isMonthly ? monthlyFee * courseDurationMonths : Number(application.grossAmount),
+      totalAmount: isRecurring ? monthlyFee * courseDurationMonths : Number(application.grossAmount),
       discountPercentage: this.discountPercentage(application),
       discountAmount: Number(application.planDiscountAmount) + Number(application.referralDiscountAmount) + Number(application.scholarshipDiscountAmount),
       referralCouponDiscountAmount: Number(application.referralDiscountAmount),
@@ -694,10 +699,27 @@ export class AdmissionsService {
       payableAmount: fullCoursePayable,
       paidAmount: firstPayment,
       pendingAmount: Math.max(0, fullCoursePayable - firstPayment),
-      installmentType: isMonthly ? 'monthly' : 'full',
-      dueDate: isMonthly ? nextDue.toISOString().slice(0, 10) : undefined,
-      nextDueDate: isMonthly ? nextDue.toISOString().slice(0, 10) : undefined,
-      status: isMonthly && fullCoursePayable > firstPayment ? 'partial' : 'paid',
+      installmentType: isRecurring ? 'monthly' : 'full',
+      installmentsPaid: 1,
+      status: isRecurring && fullCoursePayable > firstPayment ? 'partial' : 'paid',
+    } as const;
+
+    const schedule = isRecurring
+      ? buildFeeSchedule({
+          anchorDate: enrollment.enrolledAt,
+          billingCycle,
+          courseDurationMonths,
+          installmentsPaid: 1,
+          pendingAmount: planDraft.pendingAmount,
+          installmentAmount: getInstallmentAmount(planDraft),
+          hasPendingPayment: false,
+        })
+      : null;
+
+    const plan = await manager.save(FeePlan, manager.create(FeePlan, {
+      ...planDraft,
+      dueDate: schedule?.windowClosesAt || undefined,
+      nextDueDate: schedule?.windowOpensAt || undefined,
     }));
 
     invoice.student = student;

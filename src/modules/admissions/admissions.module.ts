@@ -37,6 +37,6 @@ import { PublicAdmissionsController } from './public-admissions.controller';
   ],
   controllers: [PublicAdmissionsController, AdminAdmissionsController],
   providers: [AdmissionsService, PricingService, AdmissionEmailService],
-  exports: [AdmissionsService, PricingService],
+  exports: [AdmissionsService, PricingService, AdmissionEmailService],
 })
 export class AdmissionsModule {}

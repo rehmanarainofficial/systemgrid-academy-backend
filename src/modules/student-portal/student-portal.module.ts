@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AdmissionsModule } from '../admissions/admissions.module';
 import { UploadsModule } from '../uploads/uploads.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import {
@@ -28,9 +29,12 @@ import {
   StudentPortalController,
 } from './student-portal.controller';
 import { StudentPortalService } from './student-portal.service';
+import { FeeRemindersService } from './fee-reminders.service';
+import { StudentPortalAccessGuard } from '../../common/guards/student-portal-access.guard';
 
 @Module({
   imports: [
+    AdmissionsModule,
     UploadsModule,
     NotificationsModule,
     TypeOrmModule.forFeature([
@@ -56,6 +60,6 @@ import { StudentPortalService } from './student-portal.service';
     ]),
   ],
   controllers: [StudentPortalController, PublicCertificatesController],
-  providers: [StudentPortalService],
+  providers: [StudentPortalService, FeeRemindersService, StudentPortalAccessGuard],
 })
 export class StudentPortalModule {}

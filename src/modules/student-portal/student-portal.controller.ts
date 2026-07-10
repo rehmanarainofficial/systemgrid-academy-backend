@@ -1,11 +1,13 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request } from 'express';
+import { AllowWhenPortalSuspended } from '../../common/decorators/allow-portal-suspended.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { ActiveUserGuard } from '../../common/guards/active-user.guard';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { StudentPortalAccessGuard } from '../../common/guards/student-portal-access.guard';
 import type { User } from '../../database/entities';
 import { ChangeStudentPasswordDto } from './dto/change-student-password.dto';
 import { SubmitStudentFeePaymentDto } from './dto/submit-student-fee-payment.dto';
@@ -17,12 +19,13 @@ import { StudentPortalService } from './student-portal.service';
 
 type AuthenticatedRequest = Request & { user: User };
 
-@UseGuards(JwtAuthGuard, ActiveUserGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, ActiveUserGuard, RolesGuard, StudentPortalAccessGuard)
 @Roles(UserRole.Student)
 @Controller('student')
 export class StudentPortalController {
   constructor(private readonly studentPortalService: StudentPortalService) {}
 
+  @AllowWhenPortalSuspended()
   @Get('dashboard')
   getDashboard(@Req() request: AuthenticatedRequest) {
     return this.studentPortalService.getDashboard(request.user.id);
@@ -54,11 +57,13 @@ export class StudentPortalController {
     );
   }
 
+  @AllowWhenPortalSuspended()
   @Get('payments')
   getPayments(@Req() request: AuthenticatedRequest) {
     return this.studentPortalService.getPayments(request.user.id);
   }
 
+  @AllowWhenPortalSuspended()
   @Get('payments/preview')
   getFeePaymentPreview(
     @Req() request: AuthenticatedRequest,
@@ -67,6 +72,7 @@ export class StudentPortalController {
     return this.studentPortalService.getFeePaymentPreview(request.user.id, feePlanId);
   }
 
+  @AllowWhenPortalSuspended()
   @Post('payments/submit')
   @UseInterceptors(FileInterceptor('proof', { limits: { fileSize: 10 * 1024 * 1024 } }))
   submitFeePayment(
@@ -132,6 +138,13 @@ export class StudentPortalController {
     );
   }
 
+  @AllowWhenPortalSuspended()
+  @Patch('fee-popup/dismiss')
+  dismissFeePopup(@Req() request: AuthenticatedRequest) {
+    return this.studentPortalService.dismissFeePopup(request.user.id);
+  }
+
+  @AllowWhenPortalSuspended()
   @Get('profile')
   getProfile(@Req() request: AuthenticatedRequest) {
     return this.studentPortalService.getProfile(request.user.id);

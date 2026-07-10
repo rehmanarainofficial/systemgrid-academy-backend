@@ -108,6 +108,11 @@ export class StudentsController {
     return this.studentsService.resetPassword(id, dto, request.user.id);
   }
 
+  @Patch(':id/restore-portal-access')
+  restorePortalAccess(@Param('id') id: string, @Req() request: AdminRequest) {
+    return this.studentsService.restorePortalAccess(id, request.user.id);
+  }
+
   @SuperAdminOnly()
   @Delete(':id')
   archive(@Param('id') id: string, @Req() request: AdminRequest) {

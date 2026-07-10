@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Brackets, DataSource, EntityManager } from 'typeorm';
+import { buildFeeSchedule, getInstallmentAmount } from '../../common/fees/fee-schedule.util';
 import { AuditLog, Enrollment, FeePlan, Invoice, Payment, StudentProfile, StudentWallet, User, WalletLedger } from '../../database/entities';
 import { AdminPaymentsQueryDto } from './dto/admin-payments-query.dto';
 import { CreatePaymentDto } from './dto/create-payment.dto';
@@ -216,11 +217,30 @@ export class PaymentsService {
     plan.paidAmount = Number(plan.paidAmount) + appliedAmount;
     plan.pendingAmount = Math.max(0, Number(plan.payableAmount) - Number(plan.paidAmount));
     plan.status = Number(plan.pendingAmount) <= 0 ? 'paid' : 'partial';
-    if (plan.installmentType === 'monthly') {
-      const nextDue = new Date();
-      nextDue.setMonth(nextDue.getMonth() + 1);
-      plan.nextDueDate = nextDue.toISOString().slice(0, 10);
-      plan.dueDate = plan.nextDueDate;
+    const billingCycle = plan.billingCycle ?? plan.pricingType ?? (plan.installmentType === 'monthly' ? 'monthly' : 'full_course');
+    if (billingCycle === 'monthly' || billingCycle === 'quarterly') {
+      plan.installmentsPaid = Number(plan.installmentsPaid ?? 1) + 1;
+      const schedule = buildFeeSchedule({
+        anchorDate: plan.enrollment.enrolledAt,
+        billingCycle,
+        courseDurationMonths: plan.courseDurationMonths,
+        installmentsPaid: plan.installmentsPaid,
+        pendingAmount: Number(plan.pendingAmount),
+        installmentAmount: getInstallmentAmount(plan),
+        hasPendingPayment: false,
+      });
+      plan.nextDueDate = schedule.windowOpensAt || undefined;
+      plan.dueDate = schedule.windowClosesAt || undefined;
+      plan.lastFeeReminderSentAt = undefined;
+
+      const student = plan.enrollment.student;
+      if (student?.portalAccessSuspended) {
+        student.portalAccessSuspended = false;
+        student.portalSuspendedReason = undefined;
+        student.portalSuspendedAt = undefined;
+        student.feePopupDismissedUntil = undefined;
+        await manager.save(student);
+      }
     }
     await manager.save(plan);
 

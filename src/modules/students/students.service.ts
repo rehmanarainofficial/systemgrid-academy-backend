@@ -213,6 +213,9 @@ export class StudentsService {
         passwordLastChanged: student.passwordLastChanged ?? null,
         lastIssuedPassword: student.lastIssuedPassword ?? null,
         source: student.source,
+        portalAccessSuspended: student.portalAccessSuspended,
+        portalSuspendedReason: student.portalSuspendedReason ?? null,
+        portalSuspendedAt: student.portalSuspendedAt ?? null,
       },
       summary: {
         totalEnrollments: (student.enrollments ?? []).length,
@@ -627,6 +630,25 @@ export class StudentsService {
       batchId: enrollment.batch?.id,
     });
     return { message: 'Student unenrolled from this course', enrollmentId };
+  }
+
+  async restorePortalAccess(id: string, actorId: string) {
+    const student = await this.studentsRepository.findOne({
+      where: { id },
+      relations: { user: true },
+    });
+    if (!student) throw new NotFoundException('Student not found');
+
+    student.portalAccessSuspended = false;
+    student.portalSuspendedReason = undefined;
+    student.portalSuspendedAt = undefined;
+    student.feePopupDismissedUntil = undefined;
+    await this.studentsRepository.save(student);
+    await this.logAction(actorId, 'restore_portal_access', id);
+    return {
+      message: 'Student portal access restored successfully.',
+      student: await this.findAdminDetail(id),
+    };
   }
 
   async archive(id: string, actorId: string) {

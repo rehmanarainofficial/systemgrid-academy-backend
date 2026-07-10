@@ -91,6 +91,41 @@ export class AdmissionEmailService {
     });
   }
 
+  async sendFeeDueReminderEmail(input: {
+    email: string;
+    studentName: string;
+    courseTitle: string;
+    installmentLabel: string;
+    amount: number;
+    windowOpensAt: string;
+    windowClosesAt: string;
+  }) {
+    const amount = Number(input.amount).toLocaleString('en-PK');
+    await this.send({
+      to: input.email,
+      subject: `Fee payment reminder - ${input.installmentLabel}`,
+      text: [
+        `Dear ${input.studentName},`,
+        '',
+        `Your ${input.installmentLabel.toLowerCase()} fee for ${input.courseTitle} is now payable.`,
+        `Amount: PKR ${amount}`,
+        `Pay between ${input.windowOpensAt} and ${input.windowClosesAt}.`,
+        '',
+        `Student portal: ${this.frontendUrl('/student/payments')}`,
+      ].join('\n'),
+      html: `
+        <div style="font-family:Arial,sans-serif;line-height:1.6;color:#111">
+          <h2>Fee payment reminder</h2>
+          <p>Dear ${input.studentName},</p>
+          <p>Your <strong>${input.installmentLabel}</strong> fee for <strong>${input.courseTitle}</strong> is now payable.</p>
+          <p><strong>Amount:</strong> PKR ${amount}</p>
+          <p><strong>Payment window:</strong> ${input.windowOpensAt} to ${input.windowClosesAt}</p>
+          <p><a href="${this.frontendUrl('/student/payments')}">Open student payments</a></p>
+        </div>
+      `,
+    });
+  }
+
   private async send(payload: MailPayload) {
     const host = this.configService.get<string>('MAIL_HOST');
     const user = this.configService.get<string>('MAIL_USER');

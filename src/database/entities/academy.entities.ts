@@ -395,6 +395,18 @@ export class StudentProfile {
   @Column({ name: 'status', type: 'enum', enum: StudentStatusEnum, default: StudentStatusEnum.Active })
   status: StudentStatus;
 
+  @Column({ name: 'portal_access_suspended', default: false })
+  portalAccessSuspended: boolean;
+
+  @Column({ name: 'portal_suspended_reason', type: 'text', nullable: true })
+  portalSuspendedReason?: string;
+
+  @Column({ name: 'portal_suspended_at', type: 'timestamptz', nullable: true })
+  portalSuspendedAt?: Date;
+
+  @Column({ name: 'fee_popup_dismissed_until', type: 'date', nullable: true })
+  feePopupDismissedUntil?: string;
+
   @OneToMany(() => Enrollment, (enrollment) => enrollment.student)
   enrollments: Relation<Enrollment[]>;
 
@@ -1298,6 +1310,12 @@ export class FeePlan {
 
   @Column({ name: 'next_due_date', type: 'date', nullable: true })
   nextDueDate?: string;
+
+  @Column({ name: 'installments_paid', type: 'integer', default: 1 })
+  installmentsPaid: number;
+
+  @Column({ name: 'last_fee_reminder_sent_at', type: 'date', nullable: true })
+  lastFeeReminderSentAt?: string;
 
   @Column({ name: 'status', type: 'enum', enum: FeeStatusEnum, default: FeeStatusEnum.Unpaid })
   status: FeeStatus;
