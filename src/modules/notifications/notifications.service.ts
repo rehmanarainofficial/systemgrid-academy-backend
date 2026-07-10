@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Brackets, DataSource, In } from 'typeorm';
 import { AuditLog, Batch, Course, Enrollment, Notification, StudentProfile, User } from '../../database/entities';
+import { AdminInboxQueryDto } from './dto/admin-inbox-query.dto';
 import { AdminNotificationsQueryDto } from './dto/admin-notifications-query.dto';
 import { SendAdminNotificationDto } from './dto/send-admin-notification.dto';
 
@@ -23,7 +24,7 @@ export class NotificationsService {
     const all = await repository.find({ where: { module: 'notifications', action: 'send' } });
     const countType = (type: string) => all.filter((item) => item.metadata?.type === type).length;
     return {
-      summary: { totalSent: all.length, system: countType('system'), fee: countType('fee'), class: countType('class'), assignment: countType('assignment'), certificate: countType('certificate'), payment: countType('payment') },
+      summary: { totalSent: all.length, system: countType('system'), info: countType('info'), fee: countType('fee'), class: countType('class'), assignment: countType('assignment'), certificate: countType('certificate'), payment: countType('payment') },
       history: history.map((item) => this.mapHistory(item)),
       pagination: { page: query.page, limit: query.limit, totalItems, totalPages: Math.max(1, Math.ceil(totalItems / query.limit)) },
     };
@@ -50,6 +51,69 @@ export class NotificationsService {
       }
     });
     return { unreadCount };
+  }
+
+  async inbox(userId: string, query: AdminInboxQueryDto) {
+    const repository = this.dataSource.getRepository(Notification);
+    const builder = repository.createQueryBuilder('notification')
+      .where('notification.user_id = :userId', { userId })
+      .orderBy('notification.createdAt', 'DESC');
+
+    if (query.status === 'unread') builder.andWhere('notification.isRead = false');
+    if (query.status === 'read') builder.andWhere('notification.isRead = true');
+
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const [notifications, totalItems] = await builder
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+
+    const unreadCount = await repository.count({
+      where: { user: { id: userId }, isRead: false },
+    });
+
+    return {
+      summary: { unread: unreadCount, total: totalItems },
+      notifications: notifications.map((item) => ({
+        id: item.id,
+        title: item.title,
+        message: item.message,
+        type: item.type,
+        isRead: item.isRead,
+        actionUrl: item.actionUrl ?? '',
+        createdAt: item.createdAt.toISOString(),
+      })),
+      pagination: {
+        page,
+        limit,
+        totalItems,
+        totalPages: Math.max(1, Math.ceil(totalItems / limit)),
+      },
+    };
+  }
+
+  async markInboxAsRead(userId: string, notificationId: string) {
+    const notification = await this.dataSource.getRepository(Notification).findOne({
+      where: { id: notificationId, user: { id: userId } },
+    });
+    if (!notification) throw new NotFoundException('Notification not found');
+    if (!notification.isRead) {
+      notification.isRead = true;
+      await this.dataSource.getRepository(Notification).save(notification);
+    }
+    return { message: 'Notification marked as read' };
+  }
+
+  async markAllInboxAsRead(userId: string) {
+    await this.dataSource.getRepository(Notification)
+      .createQueryBuilder()
+      .update(Notification)
+      .set({ isRead: true })
+      .where('user_id = :userId', { userId })
+      .andWhere('is_read = false')
+      .execute();
+    return { message: 'All notifications marked as read' };
   }
 
   async findOne(id: string) {

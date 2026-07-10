@@ -48,6 +48,7 @@ import { AdmissionEmailService } from './email.service';
 import { PricingService } from './pricing.service';
 import { UploadsService } from '../uploads/uploads.service';
 import type { UploadedFileData } from '../uploads/uploads.service';
+import { AdminAlertsService } from '../notifications/admin-alerts.service';
 
 @Injectable()
 export class AdmissionsService {
@@ -57,6 +58,7 @@ export class AdmissionsService {
     private readonly emailService: AdmissionEmailService,
     private readonly configService: ConfigService,
     private readonly uploadsService: UploadsService,
+    private readonly adminAlertsService: AdminAlertsService,
   ) {}
 
   async calculatePricing(dto: PricingCalculateDto) {
@@ -204,6 +206,12 @@ export class AdmissionsService {
       if (enrolledCount >= batch.capacity) {
         application.status = 'waitlisted';
         await this.dataSource.getRepository(AdmissionApplication).save(application);
+        await this.adminAlertsService.notifyAdmins({
+          title: 'Admission waitlisted',
+          message: `${dto.name.trim()} applied for ${course.title}, but the selected batch is full.`,
+          type: 'info',
+          actionUrl: '/admin/admissions',
+        });
         return { applicationId: application.id, status: 'waitlisted', message: 'This batch is currently full. Our team will contact you with the next available batch.' };
       }
     }
@@ -284,6 +292,13 @@ export class AdmissionsService {
       }));
     });
 
+    await this.adminAlertsService.notifyAdmins({
+      title: 'New admission application',
+      message: `${dto.name.trim()} applied for ${course.title}. Payment is pending.`,
+      type: 'info',
+      actionUrl: '/admin/admissions',
+    });
+
     return {
       applicationId: application.id,
       invoiceId,
@@ -299,6 +314,7 @@ export class AdmissionsService {
     const email = dto.email.trim().toLowerCase();
     const application = await this.dataSource.getRepository(AdmissionApplication).findOne({
       where: { id: dto.applicationId, email },
+      relations: { course: true },
     });
     if (!application) throw new NotFoundException('Admission application not found');
     if (!['payment_pending', 'payment_failed'].includes(application.status)) {
@@ -332,6 +348,13 @@ export class AdmissionsService {
         reference: application.paymentReference ?? null,
         senderNumber: application.paymentSenderNumber ?? null,
       },
+    });
+
+    await this.adminAlertsService.notifyAdmins({
+      title: 'Payment proof submitted',
+      message: `${application.name} submitted admission payment proof for ${application.course?.title ?? 'a course'}. Review and verify.`,
+      type: 'payment',
+      actionUrl: '/admin/admissions',
     });
 
     return {
@@ -633,6 +656,7 @@ export class AdmissionsService {
       passwordSent: true,
       passwordSentAt: new Date(),
       passwordLastChanged: new Date(),
+      lastIssuedPassword: passwordSeed,
       source: application.referralCodeApplied ? 'referral' : 'website',
       status: 'active',
     }));
@@ -643,25 +667,37 @@ export class AdmissionsService {
       status: 'active',
       progressPercentage: 0,
     }));
+    const isMonthly = application.pricingPlanType === 'monthly';
+    const courseDurationMonths = this.pricingService.durationMonths(application.course);
+    const monthlyFee = Number(application.course.monthlyFee || 5000);
+    const firstPayment = Number(application.finalPayableAmount);
+    const fullCoursePayable = isMonthly
+      ? monthlyFee * courseDurationMonths
+      : Number(application.finalPayableAmount);
+    const nextDue = new Date();
+    nextDue.setMonth(nextDue.getMonth() + 1);
+
     const plan = await manager.save(FeePlan, manager.create(FeePlan, {
       enrollment,
       student,
       course: application.course,
       pricingType: application.pricingPlanType,
       billingCycle: application.pricingPlanType,
-      courseDurationMonths: this.pricingService.durationMonths(application.course),
-      baseMonthlyFee: Number(application.course.monthlyFee || 5000),
-      totalAmount: Number(application.grossAmount),
+      courseDurationMonths,
+      baseMonthlyFee: monthlyFee,
+      totalAmount: isMonthly ? monthlyFee * courseDurationMonths : Number(application.grossAmount),
       discountPercentage: this.discountPercentage(application),
       discountAmount: Number(application.planDiscountAmount) + Number(application.referralDiscountAmount) + Number(application.scholarshipDiscountAmount),
       referralCouponDiscountAmount: Number(application.referralDiscountAmount),
       scholarshipDiscountAmount: Number(application.scholarshipDiscountAmount),
       walletCreditUsed: 0,
-      payableAmount: Number(application.finalPayableAmount),
-      paidAmount: Number(application.finalPayableAmount),
-      pendingAmount: 0,
-      installmentType: application.pricingPlanType === 'monthly' ? 'monthly' : 'full',
-      status: 'paid',
+      payableAmount: fullCoursePayable,
+      paidAmount: firstPayment,
+      pendingAmount: Math.max(0, fullCoursePayable - firstPayment),
+      installmentType: isMonthly ? 'monthly' : 'full',
+      dueDate: isMonthly ? nextDue.toISOString().slice(0, 10) : undefined,
+      nextDueDate: isMonthly ? nextDue.toISOString().slice(0, 10) : undefined,
+      status: isMonthly && fullCoursePayable > firstPayment ? 'partial' : 'paid',
     }));
 
     invoice.student = student;
@@ -747,7 +783,11 @@ export class AdmissionsService {
       type: 'referral',
       actionUrl: '/student/referrals',
     }));
-    await this.emailService.sendReferralRewardEmail(redemption.referrerStudent.user.email);
+    await this.emailService.sendReferralRewardEmail(
+      redemption.referrerStudent.user.email,
+      Number(redemption.referrerCreditAmount),
+      redemption.referrerStudent.user.name,
+    );
   }
 
   private async createWalletIfMissing(manager: EntityManager, student: StudentProfile) {

@@ -1,15 +1,5 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  Param,
-  Patch,
-  Post,
-  Query,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request } from 'express';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
@@ -18,9 +8,11 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import type { User } from '../../database/entities';
 import { ChangeStudentPasswordDto } from './dto/change-student-password.dto';
+import { SubmitStudentFeePaymentDto } from './dto/submit-student-fee-payment.dto';
 import { StudentNotificationsQueryDto } from './dto/student-notifications-query.dto';
 import { SubmitAssignmentDto } from './dto/submit-assignment.dto';
 import { UpdateStudentProfileDto } from './dto/update-student-profile.dto';
+import type { UploadedFileData } from '../uploads/uploads.service';
 import { StudentPortalService } from './student-portal.service';
 
 type AuthenticatedRequest = Request & { user: User };
@@ -65,6 +57,24 @@ export class StudentPortalController {
   @Get('payments')
   getPayments(@Req() request: AuthenticatedRequest) {
     return this.studentPortalService.getPayments(request.user.id);
+  }
+
+  @Get('payments/preview')
+  getFeePaymentPreview(
+    @Req() request: AuthenticatedRequest,
+    @Query('feePlanId') feePlanId: string,
+  ) {
+    return this.studentPortalService.getFeePaymentPreview(request.user.id, feePlanId);
+  }
+
+  @Post('payments/submit')
+  @UseInterceptors(FileInterceptor('proof', { limits: { fileSize: 10 * 1024 * 1024 } }))
+  submitFeePayment(
+    @Req() request: AuthenticatedRequest,
+    @Body() dto: SubmitStudentFeePaymentDto,
+    @UploadedFile() file: UploadedFileData,
+  ) {
+    return this.studentPortalService.submitFeePayment(request.user.id, dto, file);
   }
 
   @Get('wallet')

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -7,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import {
   Attendance,
   Assignment,
@@ -30,9 +31,13 @@ import {
   WalletLedger,
 } from '../../database/entities';
 import { ChangeStudentPasswordDto } from './dto/change-student-password.dto';
+import { SubmitStudentFeePaymentDto } from './dto/submit-student-fee-payment.dto';
 import { StudentNotificationsQueryDto } from './dto/student-notifications-query.dto';
 import { SubmitAssignmentDto } from './dto/submit-assignment.dto';
 import { UpdateStudentProfileDto } from './dto/update-student-profile.dto';
+import type { UploadedFileData } from '../uploads/uploads.service';
+import { UploadsService } from '../uploads/uploads.service';
+import { AdminAlertsService } from '../notifications/admin-alerts.service';
 
 const dayIndexes: Record<string, number> = {
   sunday: 0,
@@ -85,6 +90,9 @@ export class StudentPortalService {
     private readonly referralCodesRepository: Repository<ReferralCode>,
     @InjectRepository(ReferralRedemption)
     private readonly referralRedemptionsRepository: Repository<ReferralRedemption>,
+    private readonly dataSource: DataSource,
+    private readonly uploadsService: UploadsService,
+    private readonly adminAlertsService: AdminAlertsService,
   ) {}
 
   async getDashboard(userId: string) {
@@ -355,25 +363,50 @@ export class StudentPortalService {
       .leftJoinAndSelect('payment.student', 'student')
       .leftJoinAndSelect('payment.enrollment', 'enrollment')
       .leftJoinAndSelect('enrollment.course', 'course')
+      .leftJoinAndSelect('payment.invoiceRecord', 'invoiceRecord')
       .where('student.id = :studentId', { studentId: student.id })
       .andWhere('enrollment.id IN (:...enrollmentIds)', { enrollmentIds })
       .orderBy('payment.paymentDate', 'DESC')
       .getMany();
 
     const paymentIds = payments.map((payment) => payment.id);
-    const invoices = paymentIds.length
+    const linkedInvoices = paymentIds.length
       ? await this.invoicesRepository
           .createQueryBuilder('invoice')
           .leftJoinAndSelect('invoice.payment', 'payment')
-          .leftJoinAndSelect('payment.enrollment', 'enrollment')
+          .leftJoinAndSelect('payment.enrollment', 'paymentEnrollment')
+          .leftJoinAndSelect('paymentEnrollment.course', 'paymentCourse')
+          .leftJoinAndSelect('invoice.enrollment', 'enrollment')
           .leftJoinAndSelect('enrollment.course', 'course')
+          .leftJoinAndSelect('invoice.admissionApplication', 'application')
+          .leftJoinAndSelect('application.course', 'applicationCourse')
           .where('payment.id IN (:...paymentIds)', { paymentIds })
-          .orderBy('invoice.issuedAt', 'DESC')
           .getMany()
       : [];
-    const invoiceByPaymentId = new Map(
-      invoices.map((invoice) => [invoice.payment.id, invoice]),
-    );
+
+    const studentInvoices = await this.invoicesRepository.find({
+      where: { student: { id: student.id } },
+      relations: {
+        payment: { enrollment: { course: true } },
+        enrollment: { course: true },
+        admissionApplication: { course: true },
+      },
+      order: { issuedAt: 'DESC' },
+    });
+
+    const invoiceMap = new Map<string, Invoice>();
+    for (const invoice of [...linkedInvoices, ...studentInvoices, ...payments.map((p) => p.invoiceRecord).filter(Boolean) as Invoice[]]) {
+      if (!invoice) continue;
+      if (invoice.payment?.id) invoiceMap.set(invoice.payment.id, invoice);
+    }
+    for (const payment of payments) {
+      if (payment.invoiceRecord) invoiceMap.set(payment.id, payment.invoiceRecord);
+    }
+    const invoiceById = new Map<string, Invoice>();
+    for (const invoice of [...invoiceMap.values(), ...studentInvoices]) {
+      invoiceById.set(invoice.id, invoice);
+    }
+    const invoices = Array.from(invoiceById.values());
 
     const totalPayable = feePlans.reduce(
       (sum, item) => sum + Number(item.payableAmount ?? 0),
@@ -417,11 +450,11 @@ export class StudentPortalService {
         dueDate: plan.dueDate ?? null,
       })),
       payments: payments.map((payment) => {
-        const invoice = invoiceByPaymentId.get(payment.id);
+        const invoice = invoiceMap.get(payment.id);
         return {
           id: payment.id,
-          invoiceId: invoice?.id ?? null,
-          invoiceNumber: invoice?.invoiceNumber ?? '',
+          invoiceId: invoice?.id ?? payment.invoiceRecord?.id ?? null,
+          invoiceNumber: invoice?.invoiceNumber ?? payment.invoiceRecord?.invoiceNumber ?? '',
           courseTitle: payment.enrollment.course.title,
           amount: Number(payment.amount),
           method: payment.method,
@@ -433,7 +466,7 @@ export class StudentPortalService {
       invoices: invoices.map((invoice) => ({
         id: invoice.id,
         invoiceNumber: invoice.invoiceNumber,
-        courseTitle: invoice.payment.enrollment.course.title,
+        courseTitle: this.resolveInvoiceCourseTitle(invoice),
         amount: Number(invoice.amount),
         grossAmount: Number(invoice.grossAmount ?? invoice.amount),
         planDiscountAmount: Number(invoice.planDiscountAmount ?? 0),
@@ -1350,6 +1383,133 @@ export class StudentPortalService {
       advanced: 'Advanced',
     };
     return labels[level] ?? level;
+  }
+
+  private resolveInvoiceCourseTitle(invoice: Invoice) {
+    return (
+      invoice.payment?.enrollment?.course?.title
+      ?? invoice.enrollment?.course?.title
+      ?? invoice.admissionApplication?.course?.title
+      ?? 'Course Fee'
+    );
+  }
+
+  async getFeePaymentPreview(userId: string, feePlanId: string) {
+    const student = await this.getStudentProfile(userId);
+    const plan = await this.feePlansRepository.findOne({
+      where: { id: feePlanId, enrollment: { student: { id: student.id } } },
+      relations: { enrollment: { course: true, batch: true } },
+    });
+    if (!plan) throw new NotFoundException('Fee plan not found');
+
+    const wallet = await this.walletsRepository.findOne({ where: { student: { id: student.id } } });
+    const walletBalance = Number(wallet?.balance ?? 0);
+    const monthlyFee = Number(plan.baseMonthlyFee ?? plan.enrollment.course.monthlyFee ?? 5000);
+    const installmentAmount = plan.installmentType === 'monthly'
+      ? monthlyFee
+      : Number(plan.pendingAmount);
+    const walletCreditUsed = Math.min(walletBalance, installmentAmount);
+    const cashPayable = Math.max(0, installmentAmount - walletCreditUsed);
+
+    return {
+      feePlanId: plan.id,
+      courseTitle: plan.enrollment.course.title,
+      batchTitle: plan.enrollment.batch?.title ?? 'Self-paced',
+      installmentType: plan.installmentType,
+      monthlyFee: installmentAmount,
+      walletBalance,
+      walletCreditUsed,
+      cashPayable,
+      pendingCourseBalance: Number(plan.pendingAmount),
+      dueDate: plan.dueDate ?? plan.nextDueDate ?? null,
+      canPay: Number(plan.pendingAmount) > 0 && installmentAmount > 0,
+    };
+  }
+
+  async submitFeePayment(userId: string, dto: SubmitStudentFeePaymentDto, file?: UploadedFileData) {
+    const student = await this.getStudentProfile(userId);
+    const preview = await this.getFeePaymentPreview(userId, dto.feePlanId);
+    if (!preview.canPay) throw new BadRequestException('This fee plan has no pending installment to pay');
+
+    const existingPending = await this.paymentsRepository.findOne({
+      where: {
+        student: { id: student.id },
+        feePlan: { id: dto.feePlanId },
+        status: 'pending',
+      },
+    });
+    if (existingPending) throw new ConflictException('You already have a pending payment awaiting verification');
+
+    if (dto.method === 'bank_transfer' && !file && preview.cashPayable > 0) {
+      throw new BadRequestException('Upload payment proof screenshot for bank transfer');
+    }
+
+    const useWallet = dto.useWalletCredit !== false;
+    const walletCreditUsed = useWallet ? preview.walletCreditUsed : 0;
+    const cashPayable = useWallet ? preview.cashPayable : preview.monthlyFee;
+
+    let proofUrl = '';
+    if (file) {
+      const saved = await this.uploadsService.saveImage(file, 'payment-proofs');
+      proofUrl = saved.url;
+    }
+
+    const plan = await this.feePlansRepository.findOne({
+      where: { id: dto.feePlanId },
+      relations: { enrollment: { course: true } },
+    });
+    if (!plan) throw new NotFoundException('Fee plan not found');
+
+    let paymentId = '';
+    await this.dataSource.transaction(async (manager) => {
+      const payment = await manager.save(Payment, manager.create(Payment, {
+        student,
+        enrollment: plan.enrollment,
+        feePlan: plan,
+        amount: cashPayable,
+        method: dto.method,
+        transactionId: dto.transactionId?.trim() || undefined,
+        paymentDate: new Date().toISOString().slice(0, 10),
+        status: 'pending',
+        notes: [
+          dto.senderNumber ? `Sender: ${dto.senderNumber}` : '',
+          walletCreditUsed > 0 ? `Wallet credit to apply: PKR ${walletCreditUsed}` : '',
+          proofUrl ? `Proof: ${proofUrl}` : '',
+        ].filter(Boolean).join(' | '),
+      }));
+      paymentId = payment.id;
+
+      const invoiceNumber = `SGA-INV-${String(Date.now()).slice(-8)}`;
+      await manager.save(Invoice, manager.create(Invoice, {
+        payment,
+        student,
+        enrollment: plan.enrollment,
+        feePlan: plan,
+        invoiceNumber,
+        grossAmount: preview.monthlyFee,
+        walletCreditUsed,
+        payableAmount: preview.monthlyFee,
+        paidAmount: 0,
+        pendingAmount: cashPayable,
+        amount: preview.monthlyFee,
+        status: 'unpaid',
+        dueDate: preview.dueDate ?? undefined,
+      }));
+    });
+
+    await this.adminAlertsService.notifyAdmins({
+      title: 'New fee payment submitted',
+      message: `${student.user.name} submitted a fee payment of PKR ${cashPayable.toLocaleString('en-PK')} for ${preview.courseTitle}. Verify in payments.`,
+      type: 'fee',
+      actionUrl: '/admin/payments',
+    });
+
+    return {
+      message: 'Payment submitted successfully. Admin will verify your payment shortly.',
+      paymentId,
+      cashPayable,
+      walletCreditUsed,
+    };
   }
 
   private formatMode(mode: string) {

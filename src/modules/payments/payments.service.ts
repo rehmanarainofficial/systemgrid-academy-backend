@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Brackets, DataSource, EntityManager } from 'typeorm';
-import { AuditLog, Enrollment, FeePlan, Invoice, Payment, StudentProfile, User } from '../../database/entities';
+import { AuditLog, Enrollment, FeePlan, Invoice, Payment, StudentProfile, StudentWallet, User, WalletLedger } from '../../database/entities';
 import { AdminPaymentsQueryDto } from './dto/admin-payments-query.dto';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { UpdatePaymentDto } from './dto/update-payment.dto';
@@ -19,6 +19,7 @@ export class PaymentsService {
       .leftJoinAndSelect('enrollment.course', 'course')
       .leftJoinAndSelect('enrollment.batch', 'batch')
       .leftJoinAndSelect('payment.receivedBy', 'receivedBy')
+      .leftJoinAndSelect('payment.invoiceRecord', 'invoiceRecord')
       .orderBy('payment.paymentDate', 'DESC')
       .addOrderBy('payment.createdAt', 'DESC');
     if (query.search?.trim()) {
@@ -51,7 +52,7 @@ export class PaymentsService {
         todayCollection: verified.filter((item) => item.paymentDate === today).reduce((sum, item) => sum + Number(item.amount), 0),
         monthlyCollection: verified.filter((item) => item.paymentDate.startsWith(month)).reduce((sum, item) => sum + Number(item.amount), 0),
       },
-      payments: payments.map((item) => this.mapPayment(item, invoices.find((invoice) => invoice.payment.id === item.id))),
+      payments: payments.map((item) => this.mapPayment(item, this.resolveInvoiceForPayment(item, invoices))),
       pagination: { page: query.page, limit: query.limit, totalItems, totalPages: Math.max(1, Math.ceil(totalItems / query.limit)) },
     };
   }
@@ -78,8 +79,11 @@ export class PaymentsService {
 
   async findOne(id: string) {
     const payment = await this.payment(id);
-    const invoice = await this.dataSource.getRepository(Invoice).findOne({ where: { payment: { id } }, relations: { payment: true } });
-    return this.mapPayment(payment, invoice ?? undefined);
+    const invoice =
+      (await this.dataSource.getRepository(Invoice).findOne({ where: { payment: { id } }, relations: { payment: true } }))
+      ?? payment.invoiceRecord
+      ?? undefined;
+    return this.mapPayment(payment, invoice);
   }
 
   async create(dto: CreatePaymentDto, actorId: string) {
@@ -123,7 +127,11 @@ export class PaymentsService {
         const plan = await manager.findOne(FeePlan, { where: { id: payment.feePlan?.id ?? '', enrollment: { id: payment.enrollment.id } }, relations: { enrollment: { student: true, course: true, batch: true } } })
           ?? await manager.findOne(FeePlan, { where: { enrollment: { id: payment.enrollment.id } }, relations: { enrollment: { student: true, course: true, batch: true } } });
         if (!plan) throw new BadRequestException('Fee plan not found for this payment');
-        this.validatePaymentAmount(plan, Number(payment.amount), true);
+        const existingInvoice = await manager.findOne(Invoice, {
+          where: [{ payment: { id: payment.id } }, { id: payment.invoiceRecord?.id }],
+        });
+        const walletCredit = Number(existingInvoice?.walletCreditUsed ?? 0);
+        this.validatePaymentAmount(plan, Number(payment.amount) + walletCredit, true);
         await this.applyVerifiedPayment(manager, plan, payment, actorId);
       }
       await manager.save(AuditLog, manager.create(AuditLog, { user: { id: actorId } as User, action: 'update', module: 'payments', recordId: id, metadata: { fields: Object.keys(dto) } }));
@@ -138,7 +146,11 @@ export class PaymentsService {
     const plan = await this.dataSource.getRepository(FeePlan).findOne({ where: { id: payment.feePlan?.id ?? '', enrollment: { id: payment.enrollment.id } }, relations: { enrollment: { student: true, course: true, batch: true } } })
       ?? await this.dataSource.getRepository(FeePlan).findOne({ where: { enrollment: { id: payment.enrollment.id } }, relations: { enrollment: { student: true, course: true, batch: true } } });
     if (!plan) throw new BadRequestException('Fee plan not found for this payment');
-    this.validatePaymentAmount(plan, Number(payment.amount), true);
+    const existingInvoice = await this.dataSource.getRepository(Invoice).findOne({
+      where: [{ payment: { id: payment.id } }, { id: payment.invoiceRecord?.id }],
+    });
+    const walletCredit = Number(existingInvoice?.walletCreditUsed ?? 0);
+    this.validatePaymentAmount(plan, Number(payment.amount) + walletCredit, true);
     await this.dataSource.transaction(async (manager) => {
       payment.status = 'verified';
       payment.receivedBy = { id: actorId } as User;
@@ -167,7 +179,16 @@ export class PaymentsService {
   }
 
   private async payment(id: string) {
-    const payment = await this.dataSource.getRepository(Payment).findOne({ where: { id }, relations: { student: { user: true }, enrollment: { course: true, batch: true }, feePlan: true, receivedBy: true } });
+    const payment = await this.dataSource.getRepository(Payment).findOne({
+      where: { id },
+      relations: {
+        student: { user: true },
+        enrollment: { course: true, batch: true },
+        feePlan: true,
+        receivedBy: true,
+        invoiceRecord: true,
+      },
+    });
     if (!payment) throw new NotFoundException('Payment not found');
     return payment;
   }
@@ -179,21 +200,95 @@ export class PaymentsService {
   }
 
   private validatePaymentAmount(plan: FeePlan, amount: number, affectsBalance: boolean) {
-    if (amount <= 0) throw new BadRequestException('Payment amount must be positive');
+    if (amount < 0) throw new BadRequestException('Payment amount must be positive');
+    if (affectsBalance && amount <= 0) throw new BadRequestException('Payment amount must be positive');
     if (affectsBalance && amount > Number(plan.pendingAmount)) throw new BadRequestException('Payment amount cannot exceed pending fee');
   }
 
   private async applyVerifiedPayment(manager: EntityManager, plan: FeePlan, payment: Payment, actorId: string) {
-    plan.paidAmount = Number(plan.paidAmount) + Number(payment.amount);
+    const existingInvoice = await manager.findOne(Invoice, {
+      where: [{ payment: { id: payment.id } }, { id: payment.invoiceRecord?.id }],
+      relations: { payment: true },
+    });
+    const walletCredit = Number(existingInvoice?.walletCreditUsed ?? 0);
+    const appliedAmount = Number(payment.amount) + walletCredit;
+
+    plan.paidAmount = Number(plan.paidAmount) + appliedAmount;
     plan.pendingAmount = Math.max(0, Number(plan.payableAmount) - Number(plan.paidAmount));
     plan.status = Number(plan.pendingAmount) <= 0 ? 'paid' : 'partial';
-    await manager.save(plan);
-    const existing = await manager.findOne(Invoice, { where: { payment: { id: payment.id } } });
-    if (!existing) {
-      const invoiceNumber = `SGA-INV-${String(Date.now()).slice(-8)}`;
-      await manager.save(Invoice, manager.create(Invoice, { payment, invoiceNumber, amount: payment.amount, status: 'paid' }));
+    if (plan.installmentType === 'monthly') {
+      const nextDue = new Date();
+      nextDue.setMonth(nextDue.getMonth() + 1);
+      plan.nextDueDate = nextDue.toISOString().slice(0, 10);
+      plan.dueDate = plan.nextDueDate;
     }
-    await manager.save(AuditLog, manager.create(AuditLog, { user: { id: actorId } as User, action: 'sync_fee_plan', module: 'payments', recordId: payment.id, metadata: { feePlanId: plan.id } }));
+    await manager.save(plan);
+
+    if (walletCredit > 0) {
+      await this.debitWalletCredit(manager, payment.student.id, walletCredit, payment.id, 'Monthly fee wallet credit applied');
+      plan.walletCreditUsed = Number(plan.walletCreditUsed ?? 0) + walletCredit;
+      await manager.save(plan);
+    }
+
+    if (!existingInvoice) {
+      const invoiceNumber = `SGA-INV-${String(Date.now()).slice(-8)}`;
+      await manager.save(Invoice, manager.create(Invoice, {
+        payment,
+        student: payment.student,
+        enrollment: payment.enrollment,
+        feePlan: plan,
+        invoiceNumber,
+        grossAmount: appliedAmount,
+        walletCreditUsed: walletCredit,
+        payableAmount: appliedAmount,
+        paidAmount: appliedAmount,
+        pendingAmount: 0,
+        amount: appliedAmount,
+        status: 'paid',
+        paidAt: new Date(),
+      }));
+    } else {
+      existingInvoice.status = 'paid';
+      existingInvoice.paidAmount = appliedAmount;
+      existingInvoice.pendingAmount = 0;
+      existingInvoice.paidAt = new Date();
+      if (!existingInvoice.payment) existingInvoice.payment = payment;
+      await manager.save(existingInvoice);
+    }
+
+    await manager.save(AuditLog, manager.create(AuditLog, { user: { id: actorId } as User, action: 'sync_fee_plan', module: 'payments', recordId: payment.id, metadata: { feePlanId: plan.id, walletCredit } }));
+  }
+
+  private async debitWalletCredit(
+    manager: EntityManager,
+    studentId: string,
+    amount: number,
+    referenceId: string,
+    description: string,
+  ) {
+    const wallet = await manager.findOne(StudentWallet, { where: { student: { id: studentId } } });
+    if (!wallet || Number(wallet.balance) < amount) {
+      throw new BadRequestException('Insufficient wallet balance to apply credit');
+    }
+    wallet.balance = Number(wallet.balance) - amount;
+    wallet.totalUsed = Number(wallet.totalUsed) + amount;
+    await manager.save(wallet);
+    await manager.save(WalletLedger, manager.create(WalletLedger, {
+      student: { id: studentId } as StudentProfile,
+      type: 'debit',
+      source: 'invoice_credit_usage',
+      amount,
+      balanceAfter: wallet.balance,
+      referenceId,
+      description,
+    }));
+  }
+
+  private resolveInvoiceForPayment(payment: Payment, invoices: Invoice[]) {
+    return (
+      payment.invoiceRecord ??
+      invoices.find((invoice) => invoice.payment?.id === payment.id)
+    );
   }
 
   private mapPayment(payment: Payment, invoice?: Invoice) {
@@ -206,8 +301,8 @@ export class PaymentsService {
       batchTitle: payment.enrollment.batch?.title ?? '',
       enrollmentId: payment.enrollment.id,
       feePlanId: payment.feePlan?.id ?? '',
-      invoiceId: invoice?.id ?? '',
-      invoiceNumber: invoice?.invoiceNumber ?? '',
+      invoiceId: invoice?.id ?? payment.invoiceRecord?.id ?? '',
+      invoiceNumber: invoice?.invoiceNumber ?? payment.invoiceRecord?.invoiceNumber ?? '',
       amount: Number(payment.amount),
       method: payment.method,
       transactionId: payment.transactionId ?? '',

@@ -31,6 +31,7 @@ import { InstructorPortalModule } from './modules/instructor-portal/instructor-p
 import { AdminDashboardModule } from './modules/admin-dashboard/admin-dashboard.module';
 import { BlogsModule } from './modules/blogs/blogs.module';
 import { AdmissionsModule } from './modules/admissions/admissions.module';
+import { LearningPathsModule } from './modules/learning-paths/learning-paths.module';
 
 @Module({
   imports: [
@@ -64,6 +65,7 @@ import { AdmissionsModule } from './modules/admissions/admissions.module';
     AdminDashboardModule,
     BlogsModule,
     AdmissionsModule,
+    LearningPathsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

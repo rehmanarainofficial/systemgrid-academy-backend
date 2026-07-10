@@ -48,7 +48,7 @@ export class AdminDashboardService {
       activeBatches,
       leadRows,
       allPayments,
-      pendingFeeRow,
+      pendingFeePlans,
       attendanceRows,
       certificatesIssued,
       growthStudents,
@@ -67,10 +67,7 @@ export class AdminDashboardService {
         .groupBy('lead.status')
         .getRawMany<{ status: string; count: string }>(),
       this.payments.find({ where: { status: 'verified' } }),
-      this.feePlans
-        .createQueryBuilder('plan')
-        .select('COALESCE(SUM(plan.pendingAmount), 0)', 'total')
-        .getRawOne<{ total: string }>(),
+      this.feePlans.find({ select: { pendingAmount: true } }),
       this.attendance.find(),
       this.certificates.count({ where: { status: 'issued' } }),
       this.students.find({ select: { id: true, createdAt: true } }),
@@ -124,7 +121,7 @@ export class AdminDashboardService {
         monthlyRevenue: allPayments
           .filter((payment) => new Date(payment.paymentDate) >= monthStart)
           .reduce((sum, payment) => sum + Number(payment.amount), 0),
-        pendingFees: Number(pendingFeeRow?.total ?? 0),
+        pendingFees: pendingFeePlans.reduce((sum, plan) => sum + Number(plan.pendingAmount ?? 0), 0),
         averageAttendance: attendanceRows.length
           ? Math.round((attended / attendanceRows.length) * 100)
           : 0,
@@ -159,10 +156,10 @@ export class AdminDashboardService {
       })),
       recentStudents: recentStudents.map((student) => ({
         id: student.id,
-        name: student.user.name,
-        email: student.user.email,
+        name: student.user?.name ?? 'Unknown student',
+        email: student.user?.email ?? '',
         courseTitle:
-          student.enrollments?.find((enrollment) => enrollment.status === 'active')?.course.title ??
+          student.enrollments?.find((enrollment) => enrollment.status === 'active')?.course?.title ??
           'Not enrolled',
         status: student.status,
         createdAt: student.createdAt,
@@ -170,7 +167,7 @@ export class AdminDashboardService {
       upcomingBatches: upcomingBatches.map((batch) => ({
         id: batch.id,
         title: batch.title,
-        courseTitle: batch.course.title,
+        courseTitle: batch.course?.title ?? 'Unknown course',
         startDate: batch.startDate,
         mode: batch.mode,
         studentsCount: batchCounts[batch.id] ?? 0,

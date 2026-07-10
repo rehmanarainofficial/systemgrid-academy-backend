@@ -12,6 +12,7 @@ export const ACCESS_RESOURCES = [
   { key: 'students', label: 'Students', group: 'Academics' },
   { key: 'enrollments', label: 'Enrollments', group: 'Academics' },
   { key: 'courses', label: 'Courses', group: 'Academics' },
+  { key: 'learning-paths', label: 'Learning Paths', group: 'Academics' },
   { key: 'lessons', label: 'Lessons', group: 'Academics' },
   { key: 'batches', label: 'Batches', group: 'Academics' },
   { key: 'attendance', label: 'Attendance', group: 'Academics' },
@@ -59,6 +60,7 @@ export const DEFAULT_MATRIX: Matrix = {
     courses: F, lessons: F, batches: F, attendance: F, assignments: F,
     submissions: F, categories: F, instructors: F, certificates: F,
     fees: F, payments: F, invoices: F, notifications: F, blog: F,
+    'learning-paths': F,
     reports: F, settings: F, users: R, 'audit-logs': F, 'access-control': N,
   },
   [UserRole.Staff]: {

@@ -50,6 +50,20 @@ export class SettingsService {
     };
   }
 
+  async getPublicSettings() {
+    const { settings } = await this.getSettings();
+    return {
+      branding: {
+        academyName: settings.branding.academyName,
+        tagline: settings.branding.tagline,
+      },
+      theme: settings.theme,
+      whatsapp: settings.whatsapp.enabled
+        ? { number: settings.whatsapp.number, message: settings.whatsapp.message }
+        : null,
+    };
+  }
+
   async updateSettings(dto: UpdateSettingsDto, actorId: string) {
     const allowedKeys: SettingKey[] = ['branding', 'theme', 'contact', 'whatsapp'];
     await this.dataSource.transaction(async (manager) => {

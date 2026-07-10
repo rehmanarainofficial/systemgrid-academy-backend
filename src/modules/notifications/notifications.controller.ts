@@ -1,10 +1,11 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import { Access } from '../../common/decorators/access.decorator';
 import { ActiveUserGuard } from '../../common/guards/active-user.guard';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import type { User } from '../../database/entities';
+import { AdminInboxQueryDto } from './dto/admin-inbox-query.dto';
 import { AdminNotificationsQueryDto } from './dto/admin-notifications-query.dto';
 import { SendAdminNotificationDto } from './dto/send-admin-notification.dto';
 import { NotificationsService } from './notifications.service';
@@ -18,6 +19,9 @@ export class NotificationsController {
   constructor(private readonly service: NotificationsService) {}
   @Get() findAll(@Query() query: AdminNotificationsQueryDto) { return this.service.findAll(query); }
   @Get('count') count(@Req() request: AdminRequest) { return this.service.count(request.user.id); }
+  @Get('inbox') inbox(@Req() request: AdminRequest, @Query() query: AdminInboxQueryDto) { return this.service.inbox(request.user.id, query); }
+  @Patch('inbox/read-all') markAllInboxRead(@Req() request: AdminRequest) { return this.service.markAllInboxAsRead(request.user.id); }
+  @Patch('inbox/:id/read') markInboxRead(@Req() request: AdminRequest, @Param('id') id: string) { return this.service.markInboxAsRead(request.user.id, id); }
   @Get('options') options() { return this.service.options(); }
   @Get(':id') findOne(@Param('id') id: string) { return this.service.findOne(id); }
   @Post('send') send(@Body() dto: SendAdminNotificationDto, @Req() request: AdminRequest) { return this.service.send(dto, request.user.id); }

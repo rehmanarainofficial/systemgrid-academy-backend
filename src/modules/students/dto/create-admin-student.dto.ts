@@ -124,4 +124,8 @@ export class CreateAdminStudentDto {
   @ValidateNested()
   @Type(() => InitialEnrollmentDto)
   enrollment: InitialEnrollmentDto;
+
+  @IsOptional()
+  @IsUUID()
+  leadId?: string;
 }

@@ -61,11 +61,14 @@ export class AdmissionEmailService {
     });
   }
 
-  async sendReferralRewardEmail(email: string) {
+  async sendReferralRewardEmail(email: string, amount: number, referrerName = 'Student') {
+    const formattedAmount = Number(amount).toLocaleString('en-PK');
+    const text = `Your referral was verified. PKR ${formattedAmount} credit has been added to your SystemGrid Academy wallet.`;
     await this.send({
       to: email,
       subject: 'Referral reward added to your wallet',
-      text: 'Your referral was verified. PKR 1,000 credit has been added to your SystemGrid Academy wallet.',
+      text,
+      html: this.referralRewardTemplate(referrerName, formattedAmount),
     });
   }
 
@@ -181,6 +184,46 @@ export class AdmissionEmailService {
                     
                     <div style="margin-top:24px;border-radius:18px;background:#f8fafc;padding:16px;font-size:13px;line-height:1.7;color:#475569;">
                       <p style="margin:0;">For your security, never share your password with anyone. SystemGrid Academy will never ask for your password through email, WhatsApp, or phone call.</p>
+                    </div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </div>
+    `;
+  }
+
+  private referralRewardTemplate(name: string, formattedAmount: string) {
+    const walletUrl = 'https://systemgrid-academy.com/student/wallet';
+    return `
+      <div style="margin:0;padding:0;background:#f4f7fb;font-family:Inter,Arial,sans-serif;color:#111827;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f7fb;padding:32px 16px;">
+          <tr>
+            <td align="center">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;overflow:hidden;border-radius:28px;background:#ffffff;box-shadow:0 24px 80px rgba(15,23,42,.12);">
+                <tr>
+                  <td style="padding:28px 28px 18px;background:linear-gradient(135deg,#0071e3,#00b8ff 55%,#6d5dfc);color:#ffffff;">
+                    <div style="display:inline-block;border-radius:999px;background:rgba(255,255,255,.16);padding:7px 12px;font-size:12px;font-weight:700;letter-spacing:.04em;">SYSTEMGRID ACADEMY</div>
+                    <h1 style="margin:18px 0 0;font-size:28px;line-height:1.15;letter-spacing:-.03em;">Referral reward added</h1>
+                    <p style="margin:10px 0 0;font-size:15px;line-height:1.7;color:rgba(255,255,255,.86);">Your referral was verified and wallet credit is now available.</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:30px 28px;">
+                    <p style="margin:0 0 8px;font-size:14px;line-height:1.7;color:#4b5563;">Dear ${name},</p>
+                    <p style="margin:0 0 16px;font-size:14px;line-height:1.7;color:#4b5563;">Great news! Your referral was verified and the reward has been added to your SystemGrid Academy wallet.</p>
+                    <div style="margin:20px 0;border-radius:22px;border:1px solid #dbeafe;background:#eff6ff;padding:22px;text-align:center;">
+                      <p style="margin:0 0 8px;font-size:13px;line-height:1.7;color:#6b7280;font-weight:600;">WALLET CREDIT ADDED</p>
+                      <p style="margin:0;font-size:34px;line-height:1;font-weight:800;color:#0071e3;">PKR ${formattedAmount}</p>
+                    </div>
+                    <p style="margin:0 0 16px;font-size:14px;line-height:1.7;color:#4b5563;">You can use this balance toward your next fee installment from the student portal.</p>
+                    <div style="margin:24px 0;text-align:center;">
+                      <a href="${walletUrl}" style="display:inline-block;border-radius:999px;background:#0071e3;color:#ffffff;text-decoration:none;padding:14px 24px;font-size:14px;font-weight:700;">View Wallet</a>
+                    </div>
+                    <div style="margin-top:24px;border-radius:18px;background:#f8fafc;padding:16px;font-size:13px;line-height:1.7;color:#475569;">
+                      Thank you for helping grow the SystemGrid Academy community. Keep sharing your referral code with friends who want to learn tech skills.
                     </div>
                   </td>
                 </tr>

@@ -20,6 +20,7 @@ import {
   Enrollment,
   FeePlan,
   Gender,
+  Lead,
   StudentSource,
   StudentProfile,
   User,
@@ -210,6 +211,7 @@ export class StudentsService {
         passwordSent: student.passwordSent,
         passwordSentAt: student.passwordSentAt ?? null,
         passwordLastChanged: student.passwordLastChanged ?? null,
+        lastIssuedPassword: student.lastIssuedPassword ?? null,
         source: student.source,
       },
       summary: {
@@ -308,6 +310,10 @@ export class StudentsService {
           admissionMessage: dto.admissionMessage?.trim() || undefined,
           emailVerified: true,
           emailVerifiedAt: verification.emailVerifiedAt ?? new Date(),
+          passwordSent: true,
+          passwordSentAt: new Date(),
+          passwordLastChanged: new Date(),
+          lastIssuedPassword: dto.password,
           dateOfBirth: dto.dateOfBirth,
           gender: this.normalizeGender(dto.gender),
           source: this.normalizeSource(dto.source),
@@ -354,6 +360,23 @@ export class StudentsService {
         }),
       );
       await manager.remove(verification);
+      if (dto.leadId) {
+        const lead = await manager.findOne(Lead, { where: { id: dto.leadId } });
+        if (lead && lead.status !== 'converted') {
+          lead.status = 'converted';
+          lead.email = email;
+          await manager.save(lead);
+          await manager.save(
+            manager.create(AuditLog, {
+              user: { id: actorId } as User,
+              action: 'convert_to_student',
+              module: 'leads',
+              recordId: lead.id,
+              metadata: { studentId: student.id, source: 'admin_create' },
+            }),
+          );
+        }
+      }
       return student.id;
     });
     return this.findAdminDetail(studentId);
@@ -363,7 +386,10 @@ export class StudentsService {
     const student = await this.studentsRepository.findOne({ where: { id }, relations: { user: true } });
     if (!student) throw new NotFoundException('Student not found');
     student.user.password = await bcrypt.hash(dto.password, 12);
+    student.lastIssuedPassword = dto.password;
+    student.passwordLastChanged = new Date();
     await this.dataSource.getRepository(User).save(student.user);
+    await this.studentsRepository.save(student);
     await this.logAction(actorId, 'reset_password', id);
     return { message: 'Student password reset successfully' };
   }

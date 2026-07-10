@@ -12,6 +12,7 @@ import {
   WalletLedger,
 } from '../../database/entities';
 import { UploadsModule } from '../uploads/uploads.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { AdminAdmissionsController } from './admin-admissions.controller';
 import { AdmissionsService } from './admissions.service';
 import { AdmissionEmailService } from './email.service';
@@ -32,6 +33,7 @@ import { PublicAdmissionsController } from './public-admissions.controller';
       WalletLedger,
     ]),
     UploadsModule,
+    NotificationsModule,
   ],
   controllers: [PublicAdmissionsController, AdminAdmissionsController],
   providers: [AdmissionsService, PricingService, AdmissionEmailService],

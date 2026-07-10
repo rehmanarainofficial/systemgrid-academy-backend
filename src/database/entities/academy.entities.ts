@@ -386,6 +386,9 @@ export class StudentProfile {
   @Column({ name: 'password_last_changed', type: 'timestamptz', nullable: true })
   passwordLastChanged?: Date;
 
+  @Column({ name: 'last_issued_password', nullable: true })
+  lastIssuedPassword?: string;
+
   @Column({ name: 'source', type: 'enum', enum: StudentSourceEnum, default: StudentSourceEnum.Website })
   source: StudentSource;
 
@@ -2092,6 +2095,139 @@ export class Setting {
 
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
+}
+
+@Entity('learning_paths')
+@Index('idx_learning_paths_is_published', ['isPublished'])
+@Index('idx_learning_paths_sort_order', ['sortOrder'])
+export class LearningPath {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Index('uq_learning_paths_slug', { unique: true })
+  @Column({ name: 'slug', unique: true })
+  slug: string;
+
+  @Column({ name: 'title' })
+  title: string;
+
+  @Column({ name: 'badge', nullable: true })
+  badge?: string;
+
+  @Column({ name: 'level' })
+  level: string;
+
+  @Column({ name: 'duration' })
+  duration: string;
+
+  @Column({ name: 'best_for' })
+  bestFor: string;
+
+  @Column({ name: 'summary', type: 'text' })
+  summary: string;
+
+  @Column({ name: 'description', type: 'text' })
+  description: string;
+
+  @Column({ name: 'guidance', type: 'text' })
+  guidance: string;
+
+  @Column({ name: 'icon_key', default: 'route' })
+  iconKey: string;
+
+  @Column('text', { name: 'tools', array: true, default: [] })
+  tools: string[];
+
+  @Column('text', { name: 'related_slugs', array: true, default: [] })
+  relatedSlugs: string[];
+
+  @ManyToOne(() => Course, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'primary_course_id' })
+  primaryCourse?: Relation<Course>;
+
+  @Column({ name: 'is_published', default: true })
+  isPublished: boolean;
+
+  @Column({ name: 'is_featured', default: false })
+  isFeatured: boolean;
+
+  @Column({ name: 'sort_order', type: 'integer', default: 0 })
+  sortOrder: number;
+
+  @OneToMany(() => LearningPathPhase, (phase) => phase.learningPath, { cascade: true })
+  phases: Relation<LearningPathPhase[]>;
+
+  @OneToMany(() => LearningPathOutcome, (outcome) => outcome.learningPath, { cascade: true })
+  outcomes: Relation<LearningPathOutcome[]>;
+
+  @OneToMany(() => LearningPathCourse, (item) => item.learningPath, { cascade: true })
+  pathCourses: Relation<LearningPathCourse[]>;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
+}
+
+@Entity('learning_path_phases')
+@Index('idx_learning_path_phases_learning_path_id', ['learningPath'])
+export class LearningPathPhase {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @ManyToOne(() => LearningPath, (path) => path.phases, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'learning_path_id' })
+  learningPath: Relation<LearningPath>;
+
+  @Column({ name: 'title' })
+  title: string;
+
+  @Column({ name: 'description', type: 'text' })
+  description: string;
+
+  @Column('text', { name: 'topics', array: true, default: [] })
+  topics: string[];
+
+  @Column({ name: 'sort_order', type: 'integer', default: 0 })
+  sortOrder: number;
+}
+
+@Entity('learning_path_outcomes')
+@Index('idx_learning_path_outcomes_learning_path_id', ['learningPath'])
+export class LearningPathOutcome {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @ManyToOne(() => LearningPath, (path) => path.outcomes, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'learning_path_id' })
+  learningPath: Relation<LearningPath>;
+
+  @Column({ name: 'title' })
+  title: string;
+
+  @Column({ name: 'sort_order', type: 'integer', default: 0 })
+  sortOrder: number;
+}
+
+@Entity('learning_path_courses')
+@Index('idx_learning_path_courses_learning_path_id', ['learningPath'])
+@Index('idx_learning_path_courses_course_id', ['course'])
+@Index('uq_learning_path_courses_path_course', ['learningPath', 'course'], { unique: true })
+export class LearningPathCourse {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @ManyToOne(() => LearningPath, (path) => path.pathCourses, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'learning_path_id' })
+  learningPath: Relation<LearningPath>;
+
+  @ManyToOne(() => Course, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'course_id' })
+  course: Relation<Course>;
+
+  @Column({ name: 'sort_order', type: 'integer', default: 0 })
+  sortOrder: number;
 }
 
 @Entity('audit_logs')

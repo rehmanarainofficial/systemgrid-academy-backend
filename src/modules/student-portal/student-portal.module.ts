@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { UploadsModule } from '../uploads/uploads.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import {
   Attendance,
   Assignment,
@@ -29,6 +31,8 @@ import { StudentPortalService } from './student-portal.service';
 
 @Module({
   imports: [
+    UploadsModule,
+    NotificationsModule,
     TypeOrmModule.forFeature([
       Attendance,
       Assignment,
