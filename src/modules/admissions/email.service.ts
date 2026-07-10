@@ -1,4 +1,8 @@
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 type MailPayload = {
@@ -23,7 +27,12 @@ export class AdmissionEmailService {
     });
   }
 
-  async sendPaymentLinkEmail(email: string, courseTitle: string, finalPayable: number, paymentLink: string) {
+  async sendPaymentLinkEmail(
+    email: string,
+    courseTitle: string,
+    finalPayable: number,
+    paymentLink: string,
+  ) {
     await this.send({
       to: email,
       subject: 'Complete your SystemGrid Academy admission payment',
@@ -49,7 +58,7 @@ export class AdmissionEmailService {
         `Email: ${email}`,
         `Password: ${password}`,
         '',
-        'Login URL: https://systemgrid-academy.com/login',
+        'Login URL: https://academy.thesystemgrid.com/login',
         '',
         'For your security, we recommend changing your password after your first login.',
         '',
@@ -61,7 +70,11 @@ export class AdmissionEmailService {
     });
   }
 
-  async sendReferralRewardEmail(email: string, amount: number, referrerName = 'Student') {
+  async sendReferralRewardEmail(
+    email: string,
+    amount: number,
+    referrerName = 'Student',
+  ) {
     const formattedAmount = Number(amount).toLocaleString('en-PK');
     const text = `Your referral was verified. PKR ${formattedAmount} credit has been added to your SystemGrid Academy wallet.`;
     await this.send({
@@ -78,20 +91,31 @@ export class AdmissionEmailService {
     const pass = this.configService.get<string>('MAIL_PASS');
     if (!host || !user || !pass) {
       if (process.env.NODE_ENV === 'production') {
-        this.logger.error(`Email not configured. Missing MAIL_HOST, MAIL_USER, or MAIL_PASS.`);
-        throw new ServiceUnavailableException('Email service is not configured on the server.');
+        this.logger.error(
+          `Email not configured. Missing MAIL_HOST, MAIL_USER, or MAIL_PASS.`,
+        );
+        throw new ServiceUnavailableException(
+          'Email service is not configured on the server.',
+        );
       }
-      this.logger.log(`[mail:dev] ${payload.subject} -> ${payload.to}: ${payload.text}`);
+      this.logger.log(
+        `[mail:dev] ${payload.subject} -> ${payload.to}: ${payload.text}`,
+      );
       return;
     }
 
     try {
-      const optionalImport = new Function('moduleName', 'return import(moduleName)') as (moduleName: string) => Promise<any>;
+      const optionalImport = new Function(
+        'moduleName',
+        'return import(moduleName)',
+      ) as (moduleName: string) => Promise<any>;
       const nodemailer = await optionalImport('nodemailer');
       const transporter = nodemailer.createTransport({
         host,
         port: Number(this.configService.get<string>('MAIL_PORT') ?? 587),
-        secure: String(this.configService.get<string>('MAIL_SECURE') ?? 'false') === 'true',
+        secure:
+          String(this.configService.get<string>('MAIL_SECURE') ?? 'false') ===
+          'true',
         auth: { user, pass },
       });
       await transporter.sendMail({
@@ -104,7 +128,9 @@ export class AdmissionEmailService {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'unknown error';
       this.logger.error(`Email delivery failed: ${message}`);
-      throw new ServiceUnavailableException('Unable to send email right now. Please try again shortly.');
+      throw new ServiceUnavailableException(
+        'Unable to send email right now. Please try again shortly.',
+      );
     }
   }
 
@@ -172,7 +198,7 @@ export class AdmissionEmailService {
                     <div style="margin:24px 0;padding:16px;border-radius:18px;background:#f8fafc;">
                       <p style="margin:0 0 8px;font-size:13px;line-height:1.7;color:#475569;font-weight:600;">HOW TO LOGIN</p>
                       <ol style="margin:0;padding-left:20px;font-size:14px;line-height:1.7;color:#4b5563;">
-                        <li style="margin-bottom:8px;">Visit <a href="https://systemgrid-academy.com/login" style="color:#0071e3;text-decoration:underline;">systemgrid-academy.com/login</a></li>
+                        <li style="margin-bottom:8px;">Visit <a href="https://academy.thesystemgrid.com/login" style="color:#0071e3;text-decoration:underline;">academy.thesystemgrid.com/login</a></li>
                         <li style="margin-bottom:8px;">Enter your email address and password above</li>
                         <li style="margin-bottom:8px;">Click "Login" to access your student portal</li>
                         <li>For your security, we recommend changing your password after first login</li>
