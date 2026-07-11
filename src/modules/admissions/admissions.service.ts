@@ -26,6 +26,7 @@ import {
   Enrollment,
   FeePlan,
   Invoice,
+  Lead,
   Notification,
   Offer,
   Payment,
@@ -294,6 +295,11 @@ export class AdmissionsService {
         recordId: application.id,
         metadata: { invoiceId, pricingPlanType: dto.pricingPlanType, finalPayableAmount: pricing.finalPayableAmount },
       }));
+      await this.convertMatchingLeadsOnPaymentPending(manager, {
+        email,
+        phone: dto.phone,
+        applicationId: application.id,
+      });
     });
 
     await this.adminAlertsService.notifyAdmins({
@@ -493,7 +499,13 @@ export class AdmissionsService {
         .orWhere('application.email ILIKE :search', { search })
         .orWhere('application.phone ILIKE :search', { search })));
     }
-    if (query.status && query.status !== 'all') builder.andWhere('application.status = :status', { status: query.status });
+    if (query.status && query.status !== 'all') {
+      builder.andWhere('application.status = :status', { status: query.status });
+    } else {
+      builder.andWhere('application.status NOT IN (:...closedStatuses)', {
+        closedStatuses: ['enrolled', 'rejected', 'cancelled'],
+      });
+    }
     const applications = await builder.take(100).getMany();
     return {
       applications: applications.map((item) => ({
@@ -863,6 +875,54 @@ export class AdmissionsService {
   private discountPercentage(application: AdmissionApplication) {
     if (!application.grossAmount) return 0;
     return Math.round((Number(application.planDiscountAmount) / Number(application.grossAmount)) * 100);
+  }
+
+  // When an applicant submits the admission form and enters payment verification,
+  // any matching lead moves to "converted" so it leaves the active leads list.
+  private async convertMatchingLeadsOnPaymentPending(
+    manager: EntityManager,
+    params: { email: string; phone: string; applicationId: string },
+  ) {
+    const phoneSuffix = this.normalizePakPhoneSuffix(params.phone);
+    const leads = await manager
+      .createQueryBuilder(Lead, 'lead')
+      .where('lead.status NOT IN (:...closedStatuses)', { closedStatuses: ['converted', 'rejected'] })
+      .andWhere(new Brackets((where) => {
+        where.where('LOWER(TRIM(lead.email)) = :email', { email: params.email });
+        if (phoneSuffix) {
+          where.orWhere(
+            `RIGHT(REGEXP_REPLACE(COALESCE(lead.phone, ''), '[^0-9]', '', 'g'), 10) = :phoneSuffix`,
+            { phoneSuffix },
+          );
+        }
+      }))
+      .getMany();
+
+    if (!leads.length) return;
+
+    for (const lead of leads) {
+      lead.status = 'converted';
+      if (!lead.email?.trim()) lead.email = params.email;
+      await manager.save(lead);
+      await manager.save(AuditLog, manager.create(AuditLog, {
+        action: 'lead_converted_on_admission_submit',
+        module: 'leads',
+        recordId: lead.id,
+        metadata: { applicationId: params.applicationId, email: params.email },
+      }));
+    }
+  }
+
+  private normalizePakPhoneSuffix(phone?: string) {
+    if (!phone?.trim()) return null;
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length < 10) return null;
+    const local = digits.startsWith('92') && digits.length >= 12
+      ? digits.slice(2)
+      : digits.startsWith('0')
+        ? digits.slice(1)
+        : digits;
+    return local.slice(-10);
   }
 
   private mapPricing(result: Awaited<ReturnType<PricingService['calculate']>>) {
