@@ -7,6 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, DataSource, ILike, In, Repository } from 'typeorm';
 import { PaginationDto } from '../../common/dto/pagination.dto';
+import { enrichOutlineFromCopy } from '../../database/seeds/course-outline-copy';
 import {
   AuditLog,
   Batch,
@@ -194,7 +195,7 @@ export class CoursesService {
     });
     if (!course) throw new NotFoundException('Course not found');
     const [mapped] = await this.attachCourseMetrics([course]);
-    const outline = await this.loadAdminOutline(id);
+    const outline = enrichOutlineFromCopy(mapped.slug, await this.loadAdminOutline(id));
     return { ...mapped, outline, hasOutline: outline.length > 0 };
   }
 
@@ -223,7 +224,7 @@ export class CoursesService {
         isFeatured: dto.isFeatured,
         isPublished: dto.isPublished,
       }));
-      if (dto.outline?.length) {
+      if (dto.outline !== undefined) {
         await this.syncOutline(manager, created, dto.outline);
       } else if (dto.modules?.length) {
         await manager.save(CourseModule, dto.modules.map((module) => manager.create(CourseModule, {
@@ -260,9 +261,11 @@ export class CoursesService {
     }
     if (dto.techStack !== undefined) course.techStack = this.cleanTechStack(dto.techStack);
     await this.coursesRepository.save(course);
-    if (dto.outline) {
+    if (dto.outline !== undefined) {
       await this.dataSource.transaction((manager) => this.syncOutline(manager, course, dto.outline!));
-    } else if (dto.modules) await this.syncModules(course, dto.modules);
+    } else if (dto.modules !== undefined) {
+      await this.syncModules(course, dto.modules);
+    }
     await this.logAction(actorId, 'update', id, { fields: Object.keys(dto) });
     return this.findAdminCourse(id);
   }
@@ -466,6 +469,8 @@ export class CoursesService {
         topics: (topicsByModuleId.get(module.id) ?? []).map((topic) => ({
           id: topic.id,
           title: topic.title,
+          description: topic.description ?? '',
+          level: topic.level ?? 'foundation',
         })),
       })),
     }));
@@ -476,11 +481,28 @@ export class CoursesService {
     course: Course,
     outline: AdminCourseQuarterDto[],
   ) {
-    await manager.delete(CourseTopic, { course: { id: course.id } });
-    await manager.delete(CourseOutlineModule, { course: { id: course.id } });
-    await manager.delete(CourseQuarter, { course: { id: course.id } });
+    const courseId = course.id;
+    await manager
+      .createQueryBuilder()
+      .delete()
+      .from(CourseTopic)
+      .where('course_id = :courseId', { courseId })
+      .execute();
+    await manager
+      .createQueryBuilder()
+      .delete()
+      .from(CourseOutlineModule)
+      .where('course_id = :courseId', { courseId })
+      .execute();
+    await manager
+      .createQueryBuilder()
+      .delete()
+      .from(CourseQuarter)
+      .where('course_id = :courseId', { courseId })
+      .execute();
 
     for (const [quarterIndex, quarterDto] of outline.entries()) {
+      if (!quarterDto.title?.trim()) continue;
       const quarter = await manager.save(
         CourseQuarter,
         manager.create(CourseQuarter, {
@@ -495,6 +517,7 @@ export class CoursesService {
       );
 
       for (const [moduleIndex, moduleDto] of (quarterDto.modules ?? []).entries()) {
+        if (!moduleDto.title?.trim()) continue;
         const outlineModule = await manager.save(
           CourseOutlineModule,
           manager.create(CourseOutlineModule, {
@@ -515,8 +538,8 @@ export class CoursesService {
               quarter,
               module: outlineModule,
               title: topicDto.title.trim(),
-              description: topicDto.title.trim(),
-              level: 'beginner',
+              description: topicDto.description?.trim() || undefined,
+              level: topicDto.level?.trim() || 'foundation',
               sortOrder: topicIndex + 1,
             }),
           );
@@ -608,34 +631,37 @@ export class CoursesService {
         scholarshipDiscountPercentage: this.offerPercentage(offers, 'scholarship-discount', 50),
         scholarshipRequiredScore: 80,
       },
-      quarters: (course.quarters ?? [])
-        .slice()
-        .sort((a, b) => a.sortOrder - b.sortOrder)
-        .map((quarter) => ({
-          id: quarter.id,
-          quarterNumber: quarter.quarterNumber,
-          title: quarter.title,
-          subtitle: quarter.subtitle ?? '',
-          description: quarter.description ?? '',
-          durationMonths: quarter.durationMonths,
-          modules: (quarter.modules ?? [])
-            .slice()
-            .sort((a, b) => a.sortOrder - b.sortOrder)
-            .map((module) => ({
-              id: module.id,
-              title: module.title,
-              description: module.description ?? '',
-              topics: (module.topics ?? [])
-                .slice()
-                .sort((a, b) => a.sortOrder - b.sortOrder)
-                .map((topic) => ({
-                  id: topic.id,
-                  title: topic.title,
-                  description: topic.description ?? '',
-                  level: topic.level,
-                })),
-            })),
-        })),
+      quarters: enrichOutlineFromCopy(
+        course.slug,
+        (course.quarters ?? [])
+          .slice()
+          .sort((a, b) => a.sortOrder - b.sortOrder)
+          .map((quarter) => ({
+            id: quarter.id,
+            quarterNumber: quarter.quarterNumber,
+            title: quarter.title,
+            subtitle: quarter.subtitle ?? '',
+            description: quarter.description ?? '',
+            durationMonths: quarter.durationMonths,
+            modules: (quarter.modules ?? [])
+              .slice()
+              .sort((a, b) => a.sortOrder - b.sortOrder)
+              .map((module) => ({
+                id: module.id,
+                title: module.title,
+                description: module.description ?? '',
+                topics: (module.topics ?? [])
+                  .slice()
+                  .sort((a, b) => a.sortOrder - b.sortOrder)
+                  .map((topic) => ({
+                    id: topic.id,
+                    title: topic.title,
+                    description: topic.description ?? '',
+                    level: topic.level,
+                  })),
+              })),
+          })),
+      ),
       tools: (course.tools ?? []).slice().sort((a, b) => a.sortOrder - b.sortOrder).map((tool) => ({
         id: tool.id,
         name: tool.name,

@@ -1,8 +1,13 @@
 import 'reflect-metadata';
 import { config } from 'dotenv';
-import { DataSource, In } from 'typeorm';
+import { DataSource } from 'typeorm';
+import {
+  getModuleDescription,
+  getTopicDescription,
+} from './course-outline-copy';
 import {
   academyEntities,
+  Batch,
   Course,
   CourseCategory,
   CourseFAQ,
@@ -12,6 +17,8 @@ import {
   CourseQuarter,
   CourseTool,
   CourseTopic,
+  Enrollment,
+  LearningPathCourse,
 } from '../entities';
 
 config();
@@ -472,9 +479,9 @@ const courses: CourseSeed[] = [
         'Interceptors',
         'Guards',
         'RxJS basics',
-        'State management basics',
-        'Angular Material or shadcn-like UI alternative',
-        'Project: Admin dashboard frontend',
+        'State management',
+        'Unit testing basics',
+        'Mini project: E-commerce product layout',
       ],
       [
         'Node.js',
@@ -590,13 +597,13 @@ const courses: CourseSeed[] = [
         'Mini project: Tailwind landing page',
       ],
       [
-        'React components and hooks',
-        'Props and state patterns',
-        'React Router',
-        'Forms and validation',
-        'Redux Toolkit store setup',
-        'Slices and async thunks',
-        'API integration patterns',
+        'React Components',
+        'React Hooks Basics',
+        'Next.js App Router',
+        'Client vs Server Components',
+        'Redux Toolkit Store',
+        'Slices and Reducers',
+        'Next.js Routing',
         'Next.js App Router',
         'Server and client components',
         'Layouts and routing',
@@ -1254,60 +1261,6 @@ const courses: CourseSeed[] = [
   ),
   simpleCourse(
     'Marketing',
-    'Free Launching & Market Growth',
-    'free-launching-market-growth',
-    3,
-    ['Meta Ads', 'Google Analytics', 'Canva', 'WhatsApp Business', 'Notion'],
-    [
-      [
-        'Launch Foundations & Market Research',
-        [
-          'Product and service launch basics',
-          'Market research methods',
-          'Target audience profiling',
-          'Competitor landscape review',
-          'Brand positioning basics',
-          'Value proposition design',
-          'Pricing and offer strategy',
-          'Launch timeline planning',
-          'Pre-launch checklist',
-          'Mini project: Launch brief document',
-        ],
-      ],
-      [
-        'Digital Presence & Growth Channels',
-        [
-          'Social media account setup',
-          'Content calendar planning',
-          'Organic growth fundamentals',
-          'Community building basics',
-          'WhatsApp Business workflow',
-          'Landing page essentials',
-          'Lead capture funnel basics',
-          'Paid ads introduction',
-          'Analytics for launch tracking',
-          'Mini project: Growth channel map',
-        ],
-      ],
-      [
-        'Launch Execution & Campaign Review',
-        [
-          'Launch day workflow',
-          'Offer testing and optimization',
-          'Customer feedback collection',
-          'Retention basics',
-          'Sales follow-up scripts',
-          'Campaign reporting',
-          'Budget tracking',
-          'Scaling basics',
-          'Portfolio presentation',
-          'Final project: Launch a complete market campaign',
-        ],
-      ],
-    ],
-  ),
-  simpleCourse(
-    'Marketing',
     'Digital Marketing',
     'digital-marketing',
     3,
@@ -1789,6 +1742,8 @@ const courses: CourseSeed[] = [
   ),
 ];
 
+export { courses };
+
 const dataSource = new DataSource({
   type: 'postgres',
   host: process.env.DATABASE_HOST ?? 'localhost',
@@ -1824,10 +1779,7 @@ async function seed() {
       categoryMap.set(name, category);
     }
 
-    await courseRepo.update(
-      { slug: In(['web-development', 'web-development-bootcamp']) },
-      { isPublished: false, isFeatured: false },
-    );
+    await removeStaleCourses(manager, courses);
 
     for (const [courseIndex, seed] of courses.entries()) {
       const category = categoryMap.get(seed.category);
@@ -1864,6 +1816,38 @@ async function seed() {
   console.log(
     `Seeded ${courses.length} SystemGrid Academy courses with quarter-wise curriculum outlines.`,
   );
+}
+
+async function removeStaleCourses(
+  manager: DataSource['manager'],
+  seeds: CourseSeed[],
+) {
+  const canonicalSlugs = new Set(seeds.map((seed) => seed.slug));
+  const allCourses = await manager.getRepository(Course).find();
+
+  for (const course of allCourses) {
+    if (canonicalSlugs.has(course.slug)) continue;
+
+    const [enrollmentCount, batchCount] = await Promise.all([
+      manager.count(Enrollment, { where: { course: { id: course.id } } }),
+      manager.count(Batch, { where: { course: { id: course.id } } }),
+    ]);
+
+    if (enrollmentCount > 0 || batchCount > 0) {
+      course.isPublished = false;
+      course.isFeatured = false;
+      await manager.save(Course, course);
+      console.log(
+        `Unpublished orphan course (has enrollments/batches): ${course.slug}`,
+      );
+      continue;
+    }
+
+    await manager.delete(LearningPathCourse, { course: { id: course.id } });
+    await clearCourseOutline(manager, course.id);
+    await manager.delete(Course, { id: course.id });
+    console.log(`Deleted orphan course: ${course.slug}`);
+  }
 }
 
 async function clearCourseOutline(
@@ -1907,6 +1891,12 @@ async function seedCourseOutline(
           title: moduleSeed.title,
           description:
             moduleSeed.description ??
+            getModuleDescription(
+              course.slug,
+              quarterIndex,
+              moduleIndex,
+              moduleSeed.title,
+            ) ??
             `Practical ${moduleSeed.title.toLowerCase()} training with guided tasks and portfolio checkpoints.`,
           sortOrder: moduleIndex + 1,
         }),
@@ -1920,7 +1910,15 @@ async function seedCourseOutline(
             quarter,
             module: outlineModule,
             title: topicTitle,
-            description: topicDescription(topicTitle, moduleSeed.title),
+            description:
+              getTopicDescription(
+                course.slug,
+                topicTitle,
+                moduleSeed.title,
+                quarterIndex,
+                moduleIndex,
+              ) ??
+              topicDescription(topicTitle, moduleSeed.title),
             level: topicLevel(topicTitle, topicIndex, moduleSeed.topics.length),
             sortOrder: topicIndex + 1,
           }),
@@ -2213,8 +2211,14 @@ function slugify(value: string) {
     .replace(/^-|-$/g, '');
 }
 
-seed().catch(async (error) => {
-  console.error(error);
-  if (dataSource.isInitialized) await dataSource.destroy();
-  process.exit(1);
-});
+const isSeedScript = process.argv[1]
+  ?.replace(/\\/g, '/')
+  .includes('course-outlines.seed');
+
+if (isSeedScript) {
+  seed().catch(async (error) => {
+    console.error(error);
+    if (dataSource.isInitialized) await dataSource.destroy();
+    process.exit(1);
+  });
+}

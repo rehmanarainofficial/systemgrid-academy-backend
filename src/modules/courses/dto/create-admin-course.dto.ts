@@ -42,6 +42,16 @@ export class AdminCourseTopicDto {
   @MinLength(2)
   @MaxLength(220)
   title: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  level?: string;
 }
 
 export class AdminCourseOutlineModuleDto {

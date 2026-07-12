@@ -37,6 +37,18 @@ export class InstructorsService {
     return this.map(instructor, count);
   }
 
+  async findPublic() {
+    const instructors = await this.dataSource.getRepository(Instructor).find({
+      where: { isActive: true },
+      order: { name: 'ASC' },
+    });
+
+    return {
+      items: instructors.map((instructor) => this.mapPublic(instructor)),
+      meta: { total: instructors.length },
+    };
+  }
+
   async create(dto: CreateInstructorDto, actorId: string) {
     await this.ensureEmail(dto.email);
     const loginUser = await this.provisionLoginUser(dto);
@@ -123,6 +135,16 @@ export class InstructorsService {
 
   private map(instructor: Instructor, batchesCount: number) {
     return { id: instructor.id, name: instructor.name, email: instructor.email ?? '', phone: instructor.phone ?? '', specialization: instructor.specialization ?? '', bio: instructor.bio ?? '', imageUrl: instructor.imageUrl ?? '', isActive: instructor.isActive, batchesCount, createdAt: instructor.createdAt };
+  }
+
+  private mapPublic(instructor: Instructor) {
+    return {
+      id: instructor.id,
+      name: instructor.name,
+      specialization: instructor.specialization ?? '',
+      bio: instructor.bio ?? '',
+      imageUrl: instructor.imageUrl ?? '',
+    };
   }
 
   private async log(actorId: string, action: string, recordId: string, metadata?: Record<string, unknown>) {
