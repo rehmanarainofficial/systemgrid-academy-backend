@@ -51,4 +51,8 @@ export class UpdateInstructorDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  showOnWebsite?: boolean;
 }

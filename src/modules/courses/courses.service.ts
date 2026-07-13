@@ -50,7 +50,7 @@ export class CoursesService {
     const [items, total] = await this.coursesRepository.findAndCount({
       where,
       relations: { category: true, tools: true },
-      order: { isFeatured: 'DESC', createdAt: 'DESC' },
+      order: { displayOrder: 'ASC', isFeatured: 'DESC', createdAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
     });
@@ -80,9 +80,11 @@ export class CoursesService {
     ] = await Promise.all([
       this.dataSource.getRepository(Offer).find({ where: { isActive: true } }),
       this.coursesRepository.find({
-        where: { isPublished: true },
+        where: course.category?.id
+          ? { isPublished: true, category: { id: course.category.id } }
+          : { isPublished: true },
         relations: { category: true },
-        order: { isFeatured: 'DESC', createdAt: 'DESC' },
+        order: { displayOrder: 'ASC', isFeatured: 'DESC', createdAt: 'DESC' },
         take: 8,
       }),
       this.dataSource.getRepository(CourseQuarter).find({
@@ -149,7 +151,8 @@ export class CoursesService {
     const builder = this.coursesRepository
       .createQueryBuilder('course')
       .leftJoinAndSelect('course.category', 'category')
-      .orderBy('course.createdAt', 'DESC');
+      .orderBy('course.displayOrder', 'ASC')
+      .addOrderBy('course.createdAt', 'DESC');
     if (query.search?.trim()) {
       const search = `%${query.search.trim()}%`;
       builder.andWhere(new Brackets((where) => where
@@ -223,6 +226,7 @@ export class CoursesService {
         discountFee: dto.discountFee,
         isFeatured: dto.isFeatured,
         isPublished: dto.isPublished,
+        displayOrder: dto.displayOrder ?? 0,
       }));
       if (dto.outline !== undefined) {
         await this.syncOutline(manager, created, dto.outline);
@@ -250,7 +254,7 @@ export class CoursesService {
     if (dto.categoryId !== undefined) course.category = await this.resolveCategory(dto.categoryId);
     const fields: Array<keyof UpdateAdminCourseDto> = [
       'title', 'shortDescription', 'description', 'thumbnail', 'level', 'duration',
-      'durationUnit', 'mode', 'language', 'fee', 'discountFee', 'isFeatured', 'isPublished',
+      'durationUnit', 'mode', 'language', 'fee', 'discountFee', 'isFeatured', 'isPublished', 'displayOrder',
     ];
     for (const field of fields) {
       if (dto[field] !== undefined) (course as unknown as Record<string, unknown>)[field] = dto[field];
@@ -328,6 +332,7 @@ export class CoursesService {
       discountFee: course.discountFee === undefined || course.discountFee === null ? null : Number(course.discountFee),
       isFeatured: course.isFeatured,
       isPublished: course.isPublished,
+      displayOrder: course.displayOrder ?? 0,
       enrollmentsCount: enrollments.filter((item) => item.course.id === course.id).length,
       batchesCount: batches.filter((item) => item.course.id === course.id).length,
       modulesCount: Math.max(

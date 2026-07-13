@@ -11,7 +11,7 @@ const DEFAULT_SETTINGS = {
     logoUrl: '/logo.svg',
   },
   theme: {
-    defaultTheme: 'system',
+    defaultTheme: 'light',
     primaryColor: '#007AFF',
     accentColor: '#0EA5E9',
   },

@@ -39,7 +39,7 @@ export class InstructorsService {
 
   async findPublic() {
     const instructors = await this.dataSource.getRepository(Instructor).find({
-      where: { isActive: true },
+      where: { isActive: true, showOnWebsite: true },
       order: { name: 'ASC' },
     });
 
@@ -60,6 +60,7 @@ export class InstructorsService {
       bio: dto.bio.trim(),
       imageUrl: dto.imageUrl?.trim() || undefined,
       isActive: dto.isActive ?? true,
+      showOnWebsite: dto.showOnWebsite ?? false,
       user: loginUser,
     });
     await this.log(actorId, 'create', instructor.id, loginUser ? { loginAccount: loginUser.id } : undefined);
@@ -100,6 +101,7 @@ export class InstructorsService {
     if (dto.bio !== undefined) instructor.bio = dto.bio.trim() || undefined;
     if (dto.imageUrl !== undefined) instructor.imageUrl = dto.imageUrl.trim() || undefined;
     if (dto.isActive !== undefined) instructor.isActive = dto.isActive;
+    if (dto.showOnWebsite !== undefined) instructor.showOnWebsite = dto.showOnWebsite;
     await this.dataSource.getRepository(Instructor).save(instructor);
     await this.log(actorId, 'update', id, { fields: Object.keys(dto) });
     return this.findOne(id);
@@ -134,7 +136,7 @@ export class InstructorsService {
   }
 
   private map(instructor: Instructor, batchesCount: number) {
-    return { id: instructor.id, name: instructor.name, email: instructor.email ?? '', phone: instructor.phone ?? '', specialization: instructor.specialization ?? '', bio: instructor.bio ?? '', imageUrl: instructor.imageUrl ?? '', isActive: instructor.isActive, batchesCount, createdAt: instructor.createdAt };
+    return { id: instructor.id, name: instructor.name, email: instructor.email ?? '', phone: instructor.phone ?? '', specialization: instructor.specialization ?? '', bio: instructor.bio ?? '', imageUrl: instructor.imageUrl ?? '', isActive: instructor.isActive, showOnWebsite: instructor.showOnWebsite, batchesCount, createdAt: instructor.createdAt };
   }
 
   private mapPublic(instructor: Instructor) {

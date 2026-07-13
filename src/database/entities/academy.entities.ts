@@ -545,6 +545,9 @@ export class Course {
   @Column({ name: 'is_published', default: false })
   isPublished: boolean;
 
+  @Column({ name: 'display_order', type: 'integer', default: 0 })
+  displayOrder: number;
+
   @OneToMany(() => CourseModule, (module) => module.course)
   modules: Relation<CourseModule[]>;
 
@@ -916,6 +919,9 @@ export class Instructor {
 
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
+
+  @Column({ name: 'show_on_website', default: false })
+  showOnWebsite: boolean;
 
   @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'user_id' })

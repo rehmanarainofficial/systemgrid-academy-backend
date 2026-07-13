@@ -165,6 +165,11 @@ export class CreateAdminCourseDto {
   isPublished: boolean;
 
   @IsOptional()
+  @IsInt()
+  @Min(0)
+  displayOrder?: number;
+
+  @IsOptional()
   @ValidateNested({ each: true })
   @Type(() => AdminCourseModuleDto)
   modules?: AdminCourseModuleDto[];

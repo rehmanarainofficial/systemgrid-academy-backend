@@ -48,6 +48,10 @@ export class CreateInstructorDto {
   @IsBoolean()
   isActive?: boolean;
 
+  @IsOptional()
+  @IsBoolean()
+  showOnWebsite?: boolean;
+
   @IsString()
   @MinLength(8)
   @MaxLength(72)

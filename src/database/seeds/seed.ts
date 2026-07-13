@@ -142,7 +142,7 @@ async function seed() {
     {
       key: 'theme',
       value: {
-        defaultTheme: 'system',
+        defaultTheme: 'light',
         primaryColor: '#007AFF',
         accentColor: '#0EA5E9',
       },
