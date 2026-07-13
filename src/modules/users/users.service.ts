@@ -120,9 +120,6 @@ export class UsersService {
     const user = await this.usersRepository.findOne({ where: { id } });
     if (!user) throw new NotFoundException('User not found');
     if (dto.role) this.assertManageableRole(dto.role);
-    if (dto.role === UserRole.SuperAdmin) {
-      throw new ForbiddenException('Super admin role can only be assigned on the server');
-    }
     if (id === actorId && (dto.role || dto.isActive === false)) {
       throw new ForbiddenException('You cannot change your own role or deactivate your own account');
     }
@@ -135,9 +132,6 @@ export class UsersService {
     if (dto.phone !== undefined) user.phone = dto.phone.trim() || undefined;
     if (dto.role !== undefined) {
       this.assertManageableRole(dto.role);
-      if (dto.role === UserRole.SuperAdmin) {
-        throw new ForbiddenException('Super admin role can only be assigned on the server');
-      }
       user.role = dto.role;
     }
     if (dto.isActive !== undefined) user.isActive = dto.isActive;

@@ -74,7 +74,7 @@ export class LeadsService {
     try {
       await this.admissionEmailService.sendNewLeadAlertEmail({
         name: saved.name,
-        phone: saved.phone,
+        phone: saved.phone ?? '',
         email: saved.email,
         courseInterest: saved.courseInterest,
         source: saved.source,
