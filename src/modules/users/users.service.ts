@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
 import { Brackets, DataSource, Repository } from 'typeorm';
 import { UserRole } from '../../common/enums/user-role.enum';
-import { AuditLog, User } from '../../database/entities';
+import { AuditLog, Batch, Instructor, User } from '../../database/entities';
 import { AdminUsersQueryDto } from './dto/admin-users-query.dto';
 import { CreateAdminUserDto } from './dto/create-admin-user.dto';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -92,7 +92,9 @@ export class UsersService {
   }
 
   async createAdminUser(dto: CreateAdminUserDto, actorId: string) {
-    this.assertManageableRole(dto.role);
+    if (![UserRole.Admin, UserRole.Staff].includes(dto.role)) {
+      throw new BadRequestException('Only admin and staff accounts can be created from this panel');
+    }
     const existing = await this.usersRepository.findOne({ where: { email: dto.email.toLowerCase().trim() } });
     if (existing) throw new ConflictException('A user with this email already exists');
     const password = await bcrypt.hash(dto.password, 12);
@@ -118,6 +120,9 @@ export class UsersService {
     const user = await this.usersRepository.findOne({ where: { id } });
     if (!user) throw new NotFoundException('User not found');
     if (dto.role) this.assertManageableRole(dto.role);
+    if (dto.role === UserRole.SuperAdmin) {
+      throw new ForbiddenException('Super admin role can only be assigned on the server');
+    }
     if (id === actorId && (dto.role || dto.isActive === false)) {
       throw new ForbiddenException('You cannot change your own role or deactivate your own account');
     }
@@ -128,7 +133,13 @@ export class UsersService {
     }
     if (dto.name !== undefined) user.name = dto.name.trim();
     if (dto.phone !== undefined) user.phone = dto.phone.trim() || undefined;
-    if (dto.role !== undefined) user.role = dto.role;
+    if (dto.role !== undefined) {
+      this.assertManageableRole(dto.role);
+      if (dto.role === UserRole.SuperAdmin) {
+        throw new ForbiddenException('Super admin role can only be assigned on the server');
+      }
+      user.role = dto.role;
+    }
     if (dto.isActive !== undefined) user.isActive = dto.isActive;
     const saved = await this.dataSource.transaction(async (manager) => {
       const updated = await manager.save(User, user);
@@ -141,8 +152,8 @@ export class UsersService {
   async resetAdminPassword(id: string, dto: ResetAdminUserPasswordDto, actorId: string) {
     const user = await this.usersRepository.findOne({ where: { id } });
     if (!user) throw new NotFoundException('User not found');
-    if (user.role === UserRole.SuperAdmin && id !== actorId) {
-      throw new ForbiddenException('Only the account owner can reset a super admin password from this panel');
+    if (user.role === UserRole.SuperAdmin) {
+      throw new ForbiddenException('Super admin passwords can only be changed on the server');
     }
     user.password = await bcrypt.hash(dto.password, 12);
     await this.dataSource.transaction(async (manager) => {
@@ -152,9 +163,57 @@ export class UsersService {
     return { message: 'Password reset successfully.' };
   }
 
+  async deleteAdminUser(id: string, actorId: string) {
+    if (id === actorId) {
+      throw new ForbiddenException('You cannot delete your own account');
+    }
+
+    const user = await this.usersRepository.findOne({ where: { id } });
+    if (!user) throw new NotFoundException('User not found');
+    if (user.role === UserRole.SuperAdmin) {
+      throw new ForbiddenException('Super admin accounts cannot be deleted from the panel');
+    }
+    if (user.role === UserRole.Student) {
+      throw new BadRequestException('Delete student accounts from the Students page');
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      if (user.role === UserRole.Instructor) {
+        const instructor = await manager.findOne(Instructor, {
+          where: { user: { id } },
+        });
+        if (instructor) {
+          const batchCount = await manager.count(Batch, {
+            where: { instructor: { id: instructor.id } },
+          });
+          if (batchCount) {
+            throw new ConflictException(
+              'This instructor is assigned to batches. Deactivate the account instead.',
+            );
+          }
+          await manager.remove(instructor);
+        }
+      }
+
+      await manager.delete(User, id);
+      await manager.save(
+        AuditLog,
+        manager.create(AuditLog, {
+          user: { id: actorId } as User,
+          action: 'delete',
+          module: 'users',
+          recordId: id,
+          metadata: { email: user.email, role: user.role },
+        }),
+      );
+    });
+
+    return { message: 'User deleted successfully' };
+  }
+
   private assertManageableRole(role: UserRole) {
-    if (![UserRole.SuperAdmin, UserRole.Admin, UserRole.Staff].includes(role)) {
-      throw new BadRequestException('Admin users can only be super admin, admin, or staff roles');
+    if (![UserRole.Admin, UserRole.Staff].includes(role)) {
+      throw new BadRequestException('Only admin and staff roles can be assigned from this panel');
     }
   }
 

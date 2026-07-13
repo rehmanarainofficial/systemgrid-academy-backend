@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import { Access, SuperAdminOnly } from '../../common/decorators/access.decorator';
 import { ActiveUserGuard } from '../../common/guards/active-user.guard';
@@ -45,5 +45,11 @@ export class UsersController {
   @Post(':id/reset-password')
   resetPassword(@Param('id') id: string, @Body() dto: ResetAdminUserPasswordDto, @Req() request: AdminRequest) {
     return this.usersService.resetAdminPassword(id, dto, request.user.id);
+  }
+
+  @SuperAdminOnly()
+  @Delete(':id')
+  remove(@Param('id') id: string, @Req() request: AdminRequest) {
+    return this.usersService.deleteAdminUser(id, request.user.id);
   }
 }
