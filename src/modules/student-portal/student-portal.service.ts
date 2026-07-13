@@ -33,6 +33,7 @@ import {
 import { ChangeStudentPasswordDto } from './dto/change-student-password.dto';
 import { SubmitStudentFeePaymentDto } from './dto/submit-student-fee-payment.dto';
 import { StudentNotificationsQueryDto } from './dto/student-notifications-query.dto';
+import { getPakistanDateString, getServerTimePayload } from '../../common/utils/pakistan-time.util';
 import { SubmitAssignmentDto } from './dto/submit-assignment.dto';
 import { UpdateStudentProfileDto } from './dto/update-student-profile.dto';
 import type { UploadedFileData } from '../uploads/uploads.service';
@@ -177,13 +178,15 @@ export class StudentPortalService {
       .addOrderBy('schedule.startTime', 'ASC')
       .getMany();
 
+    const today = getPakistanDateString();
     const upcomingClasses = schedules
-      .filter((schedule) => schedule.status === 'upcoming')
+      .filter((schedule) => schedule.status === 'upcoming' && schedule.date >= today)
       .map((schedule) => this.mapSchedule(schedule));
 
     return {
       upcomingClasses,
       weeklySchedule: this.buildWeeklySchedule(enrollments),
+      serverTime: getServerTimePayload(),
     };
   }
 
@@ -328,6 +331,16 @@ export class StudentPortalService {
         });
 
     const savedSubmission = await this.submissionsRepository.save(submission);
+
+    await this.notificationsRepository.save(
+      this.notificationsRepository.create({
+        user: { id: userId } as User,
+        title: 'Assignment submitted',
+        message: `Your submission for "${assignment.title}" was received successfully.`,
+        type: 'assignment',
+        actionUrl: `/student/assignments/${assignment.id}`,
+      }),
+    );
 
     return {
       message: 'Assignment submitted successfully',

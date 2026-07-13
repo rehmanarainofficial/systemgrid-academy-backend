@@ -4,6 +4,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { DataSource, In } from 'typeorm';
+import { assertAttendanceDateWithinBatch } from '../../common/utils/batch-date.util';
+import { getServerTimePayload } from '../../common/utils/pakistan-time.util';
 import {
   Assignment,
   AssignmentSubmission,
@@ -19,10 +21,14 @@ import { CreateInstructorAssignmentDto } from './dto/create-instructor-assignmen
 import { CreateInstructorLessonDto } from './dto/create-instructor-lesson.dto';
 import { GradeInstructorSubmissionDto } from './dto/grade-instructor-submission.dto';
 import { MarkInstructorAttendanceDto } from './dto/mark-instructor-attendance.dto';
+import { StudentNotificationsService } from '../notifications/student-notifications.service';
 
 @Injectable()
 export class InstructorPortalService {
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly studentNotifications: StudentNotificationsService,
+  ) {}
 
   // Resolve the Instructor record linked to the logged-in user account.
   private async instructor(userId: string): Promise<Instructor> {
@@ -165,6 +171,7 @@ export class InstructorPortalService {
       mode: s.mode,
       meetingUrl: s.meetingUrl ?? '',
       status: s.status,
+      serverTime: getServerTimePayload(),
     }));
   }
 
@@ -199,6 +206,7 @@ export class InstructorPortalService {
     dto: MarkInstructorAttendanceDto,
   ) {
     const batch = await this.ownBatch(userId, batchId);
+    assertAttendanceDateWithinBatch(batch, dto.date);
     const repo = this.dataSource.getRepository(Attendance);
     let saved = 0;
     for (const record of dto.records) {
@@ -232,6 +240,15 @@ export class InstructorPortalService {
         );
       }
       saved += 1;
+    }
+    for (const record of dto.records) {
+      const statusLabel = record.status.charAt(0).toUpperCase() + record.status.slice(1);
+      await this.studentNotifications.notifyStudent(record.studentId, {
+        title: 'Attendance updated',
+        message: `Your attendance for ${batch.title} on ${dto.date} was marked as ${statusLabel}.`,
+        type: 'class',
+        actionUrl: '/student/attendance',
+      });
     }
     return { message: `Attendance saved for ${saved} students`, saved };
   }
@@ -280,6 +297,14 @@ export class InstructorPortalService {
         isPublished: dto.isPublished ?? true,
       }),
     );
+    if (assignment.isPublished) {
+      await this.studentNotifications.notifyBatchStudents(batch.id, {
+        title: 'New assignment',
+        message: `A new assignment "${assignment.title}" was added to ${batch.title}.`,
+        type: 'assignment',
+        actionUrl: '/student/assignments',
+      });
+    }
     return { id: assignment.id, message: 'Assignment created' };
   }
 

@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Brackets, DataSource } from 'typeorm';
+import { assertAttendanceDateWithinBatch } from '../../common/utils/batch-date.util';
 import { Attendance, AuditLog, Batch, ClassSchedule, Enrollment, StudentProfile, User } from '../../database/entities';
+import { StudentNotificationsService } from '../notifications/student-notifications.service';
 import { AdminAttendanceQueryDto } from './dto/admin-attendance-query.dto';
 import { AttendanceMarkDataQueryDto } from './dto/attendance-mark-data-query.dto';
 import { MarkAdminAttendanceDto } from './dto/mark-admin-attendance.dto';
@@ -8,7 +10,10 @@ import { UpdateAttendanceRecordDto } from './dto/update-attendance-record.dto';
 
 @Injectable()
 export class AttendanceService {
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly studentNotifications: StudentNotificationsService,
+  ) {}
 
   async findAll(query: AdminAttendanceQueryDto) {
     const repository = this.dataSource.getRepository(Attendance);
@@ -69,6 +74,7 @@ export class AttendanceService {
   async mark(dto: MarkAdminAttendanceDto, actorId: string) {
     const batch = await this.dataSource.getRepository(Batch).findOne({ where: { id: dto.batchId }, relations: { course: true } });
     if (!batch) throw new NotFoundException('Batch not found');
+    assertAttendanceDateWithinBatch(batch, dto.date);
     if (dto.courseId && dto.courseId !== batch.course.id) throw new BadRequestException('Batch does not belong to selected course');
     const enrollments = await this.dataSource.getRepository(Enrollment).find({ where: { batch: { id: dto.batchId } }, relations: { student: true } });
     const enrolledIds = new Set(enrollments.map((item) => item.student.id));
@@ -90,6 +96,15 @@ export class AttendanceService {
       }
       await manager.save(AuditLog, manager.create(AuditLog, { user: { id: actorId } as User, action: 'mark', module: 'attendance', recordId: dto.batchId, metadata: { date: dto.date, records: dto.records.length } }));
     });
+    for (const record of dto.records) {
+      const statusLabel = record.status.charAt(0).toUpperCase() + record.status.slice(1);
+      await this.studentNotifications.notifyStudent(record.studentId, {
+        title: 'Attendance updated',
+        message: `Your attendance for ${batch.title} on ${dto.date} was marked as ${statusLabel}.`,
+        type: 'class',
+        actionUrl: '/student/attendance',
+      });
+    }
     return { message: 'Attendance marked successfully', recordsCount: dto.records.length };
   }
 

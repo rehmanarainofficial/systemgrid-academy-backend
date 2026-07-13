@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, DataSource, In, Repository } from 'typeorm';
+import { assertAttendanceDateWithinBatch, assertScheduleDateWithinBatch } from '../../common/utils/batch-date.util';
 import {
   Assignment,
   Attendance,
@@ -21,12 +22,15 @@ import { CreateBatchScheduleDto } from './dto/create-batch-schedule.dto';
 import { EnrollBatchStudentDto, UpdateBatchEnrollmentStatusDto } from './dto/enroll-batch-student.dto';
 import { MarkBatchAttendanceDto } from './dto/mark-batch-attendance.dto';
 import { UpdateAdminBatchDto } from './dto/update-admin-batch.dto';
+import { UpdateBatchScheduleDto } from './dto/update-batch-schedule.dto';
+import { StudentNotificationsService } from '../notifications/student-notifications.service';
 
 @Injectable()
 export class BatchesService {
   constructor(
     @InjectRepository(Batch) private readonly repository: Repository<Batch>,
     private readonly dataSource: DataSource,
+    private readonly studentNotifications: StudentNotificationsService,
   ) {}
 
   async findAll(query: AdminBatchesQueryDto) {
@@ -175,6 +179,12 @@ export class BatchesService {
     if (existing) throw new ConflictException('Student is already enrolled in this course');
     const enrollment = await repository.save(repository.create({ student, course: batch.course, batch, status: dto.status, progressPercentage: 0 }));
     await this.log(actorId, 'enroll_student', id, { studentId: dto.studentId, enrollmentId: enrollment.id });
+    await this.studentNotifications.notifyStudent(dto.studentId, {
+      title: 'Enrolled in batch',
+      message: `You have been enrolled in ${batch.title} (${batch.code}).`,
+      type: 'info',
+      actionUrl: '/student/my-courses',
+    });
     return { message: 'Student enrolled successfully', enrollmentId: enrollment.id };
   }
 
@@ -204,6 +214,7 @@ export class BatchesService {
 
   async markAttendance(id: string, dto: MarkBatchAttendanceDto, actorId: string) {
     const batch = await this.batch(id);
+    assertAttendanceDateWithinBatch(batch, dto.date);
     const enrollmentIds = new Set((await this.dataSource.getRepository(Enrollment).find({ where: { batch: { id }, status: In(['pending', 'active']) }, relations: { student: true } })).map((item) => item.student.id));
     if (dto.records.some((item) => !enrollmentIds.has(item.studentId))) throw new BadRequestException('Attendance can only be marked for students enrolled in this batch');
     let schedule: ClassSchedule | undefined;
@@ -222,12 +233,22 @@ export class BatchesService {
         await manager.save(attendance);
       }
     });
+    for (const record of dto.records) {
+      const statusLabel = record.status.charAt(0).toUpperCase() + record.status.slice(1);
+      await this.studentNotifications.notifyStudent(record.studentId, {
+        title: 'Attendance updated',
+        message: `Your attendance for ${batch.title} on ${dto.date} was marked as ${statusLabel}.`,
+        type: 'class',
+        actionUrl: '/student/attendance',
+      });
+    }
     await this.log(actorId, 'mark_attendance', id, { date: dto.date, records: dto.records.length });
     return { message: 'Attendance marked successfully', recordsCount: dto.records.length };
   }
 
   async createSchedule(id: string, dto: CreateBatchScheduleDto, actorId: string) {
     const batch = await this.batch(id);
+    assertScheduleDateWithinBatch(batch, dto.date);
     await this.validateDates(dto.date, dto.date, dto.startTime, dto.endTime);
     let lesson: Lesson | undefined;
     if (dto.lessonId) {
@@ -236,7 +257,53 @@ export class BatchesService {
     }
     const schedule = await this.dataSource.getRepository(ClassSchedule).save({ batch, course: batch.course, lesson, date: dto.date, startTime: dto.startTime, endTime: dto.endTime, mode: dto.mode, meetingUrl: dto.meetingUrl?.trim() || undefined, location: dto.location?.trim() || undefined, status: dto.status ?? 'upcoming' });
     await this.log(actorId, 'create_schedule', id, { scheduleId: schedule.id, date: dto.date });
+    await this.studentNotifications.notifyBatchStudents(id, {
+      title: 'New class scheduled',
+      message: `A class for ${batch.title} is scheduled on ${dto.date} at ${dto.startTime.slice(0, 5)}.`,
+      type: 'class',
+      actionUrl: '/student/schedule',
+    });
     return { message: 'Class schedule created successfully', scheduleId: schedule.id };
+  }
+
+  async updateSchedule(id: string, scheduleId: string, dto: UpdateBatchScheduleDto, actorId: string) {
+    const batch = await this.batch(id);
+    const repository = this.dataSource.getRepository(ClassSchedule);
+    const schedule = await repository.findOne({ where: { id: scheduleId, batch: { id } }, relations: { lesson: true } });
+    if (!schedule) throw new NotFoundException('Class schedule not found');
+
+    const nextDate = dto.date ?? schedule.date;
+    const nextStartTime = dto.startTime ?? schedule.startTime;
+    const nextEndTime = dto.endTime ?? schedule.endTime;
+    assertScheduleDateWithinBatch(batch, nextDate);
+    await this.validateDates(nextDate, nextDate, nextStartTime, nextEndTime);
+
+    if (dto.date !== undefined) schedule.date = dto.date;
+    if (dto.startTime !== undefined) schedule.startTime = dto.startTime;
+    if (dto.endTime !== undefined) schedule.endTime = dto.endTime;
+    if (dto.mode !== undefined) schedule.mode = dto.mode;
+    if (dto.meetingUrl !== undefined) schedule.meetingUrl = dto.meetingUrl?.trim() || undefined;
+    if (dto.location !== undefined) schedule.location = dto.location?.trim() || undefined;
+    if (dto.status !== undefined) schedule.status = dto.status;
+    if (dto.lessonId !== undefined) {
+      if (!dto.lessonId) {
+        schedule.lesson = undefined;
+      } else {
+        const lesson = await this.dataSource.getRepository(Lesson).findOne({ where: { id: dto.lessonId, course: { id: batch.course.id } } });
+        if (!lesson) throw new BadRequestException('Lesson does not belong to the batch course');
+        schedule.lesson = lesson;
+      }
+    }
+
+    await repository.save(schedule);
+    await this.log(actorId, 'update_schedule', id, { scheduleId, fields: Object.keys(dto) });
+    await this.studentNotifications.notifyBatchStudents(id, {
+      title: 'Class schedule updated',
+      message: `The class for ${batch.title} on ${schedule.date} was updated.`,
+      type: 'class',
+      actionUrl: '/student/schedule',
+    });
+    return { message: 'Class schedule updated successfully', scheduleId: schedule.id };
   }
 
   async updateScheduleStatus(id: string, scheduleId: string, status: 'upcoming' | 'completed' | 'cancelled', actorId: string) {

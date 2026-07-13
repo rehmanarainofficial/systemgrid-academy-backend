@@ -12,6 +12,7 @@ import { CreateBatchScheduleDto } from './dto/create-batch-schedule.dto';
 import { EnrollBatchStudentDto, UpdateBatchEnrollmentStatusDto } from './dto/enroll-batch-student.dto';
 import { MarkBatchAttendanceDto } from './dto/mark-batch-attendance.dto';
 import { UpdateAdminBatchDto } from './dto/update-admin-batch.dto';
+import { UpdateBatchScheduleDto } from './dto/update-batch-schedule.dto';
 import { UpdateBatchStatusDto } from './dto/update-batch-status.dto';
 
 type AdminRequest = Request & { user: User };
@@ -31,6 +32,7 @@ export class BatchesController {
   @Delete(':id/students/:studentId') removeStudent(@Param('id') id: string, @Param('studentId') studentId: string, @Req() request: AdminRequest) { return this.service.removeStudent(id, studentId, request.user.id); }
   @Post(':id/attendance/mark') markAttendance(@Param('id') id: string, @Body() dto: MarkBatchAttendanceDto, @Req() request: AdminRequest) { return this.service.markAttendance(id, dto, request.user.id); }
   @Post(':id/schedule') createSchedule(@Param('id') id: string, @Body() dto: CreateBatchScheduleDto, @Req() request: AdminRequest) { return this.service.createSchedule(id, dto, request.user.id); }
+  @Patch(':id/schedule/:scheduleId') updateSchedule(@Param('id') id: string, @Param('scheduleId') scheduleId: string, @Body() dto: UpdateBatchScheduleDto, @Req() request: AdminRequest) { return this.service.updateSchedule(id, scheduleId, dto, request.user.id); }
   @Patch(':id/schedule/:scheduleId/status') scheduleStatus(@Param('id') id: string, @Param('scheduleId') scheduleId: string, @Body('status') status: 'upcoming' | 'completed' | 'cancelled', @Req() request: AdminRequest) { return this.service.updateScheduleStatus(id, scheduleId, status, request.user.id); }
   @Patch(':id') update(@Param('id') id: string, @Body() dto: UpdateAdminBatchDto, @Req() request: AdminRequest) { return this.service.update(id, dto, request.user.id); }
   @Patch(':id/status') status(@Param('id') id: string, @Body() dto: UpdateBatchStatusDto, @Req() request: AdminRequest) { return this.service.updateStatus(id, dto.status, request.user.id); }

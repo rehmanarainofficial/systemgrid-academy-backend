@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Brackets, DataSource, In } from 'typeorm';
 import { Assignment, AssignmentSubmission, Attendance, AuditLog, Certificate, Course, Enrollment, StudentProfile, User } from '../../database/entities';
+import { StudentNotificationsService } from '../notifications/student-notifications.service';
 import { AdminCertificatesQueryDto } from './dto/admin-certificates-query.dto';
 import { IssueCertificateDto } from './dto/issue-certificate.dto';
 
@@ -21,7 +22,10 @@ type CertificateEligibilityItem = {
 
 @Injectable()
 export class CertificatesService {
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly studentNotifications: StudentNotificationsService,
+  ) {}
 
   async findAll(query: AdminCertificatesQueryDto) {
     const repository = this.dataSource.getRepository(Certificate);
@@ -79,6 +83,12 @@ export class CertificatesService {
     if (existing) throw new ConflictException('This enrollment already has an issued certificate');
     const certificate = await this.dataSource.getRepository(Certificate).save({ student: enrollment.student, course: enrollment.course, enrollment, certificateNumber: await this.nextNumber(), verificationCode: await this.nextCode(), issueDate: dto.issueDate, status: 'issued' });
     await this.log(actorId, 'issue', certificate.id, { enrollmentId: enrollment.id });
+    await this.studentNotifications.notifyStudent(enrollment.student.id, {
+      title: 'Certificate issued',
+      message: `Your certificate for ${enrollment.course.title} has been issued.`,
+      type: 'certificate',
+      actionUrl: '/student/certificates',
+    });
     return { message: 'Certificate issued successfully', certificate: { id: certificate.id, certificateNumber: certificate.certificateNumber, verificationCode: certificate.verificationCode } };
   }
 

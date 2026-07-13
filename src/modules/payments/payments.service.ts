@@ -2,13 +2,17 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Brackets, DataSource, EntityManager } from 'typeorm';
 import { buildFeeSchedule, getInstallmentAmount } from '../../common/fees/fee-schedule.util';
 import { AuditLog, Enrollment, FeePlan, Invoice, Payment, StudentProfile, StudentWallet, User, WalletLedger } from '../../database/entities';
+import { StudentNotificationsService } from '../notifications/student-notifications.service';
 import { AdminPaymentsQueryDto } from './dto/admin-payments-query.dto';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { UpdatePaymentDto } from './dto/update-payment.dto';
 
 @Injectable()
 export class PaymentsService {
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly studentNotifications: StudentNotificationsService,
+  ) {}
 
   async findAll(query: AdminPaymentsQueryDto) {
     const repository = this.dataSource.getRepository(Payment);
@@ -158,6 +162,12 @@ export class PaymentsService {
       await manager.save(payment);
       await this.applyVerifiedPayment(manager, plan, payment, actorId);
       await manager.save(AuditLog, manager.create(AuditLog, { user: { id: actorId } as User, action: 'verify', module: 'payments', recordId: id }));
+    });
+    await this.studentNotifications.notifyStudent(plan.enrollment.student.id, {
+      title: 'Payment verified',
+      message: `Your payment of PKR ${Number(payment.amount).toLocaleString('en-PK')} for ${plan.enrollment.course.title} has been verified.`,
+      type: 'payment',
+      actionUrl: '/student/payments',
     });
     return { message: 'Payment verified successfully', status: 'verified' };
   }
