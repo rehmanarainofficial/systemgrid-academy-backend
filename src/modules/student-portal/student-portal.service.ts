@@ -1304,8 +1304,11 @@ export class StudentPortalService {
     return lessons.slice(0, Math.max(completedLessons, 4)).slice(-4).map((lesson, index, sliced) => ({
       id: lesson.id,
       title: lesson.title,
+      courseId: enrollment.course.id,
       courseTitle: enrollment.course.title,
       durationMinutes: lesson.durationMinutes ?? 0,
+      videoUrl: lesson.videoUrl ?? '',
+      resourceUrl: lesson.resourceUrl ?? '',
       completed: index < sliced.length - 1 || completedLessons >= lessons.length,
     }));
   }

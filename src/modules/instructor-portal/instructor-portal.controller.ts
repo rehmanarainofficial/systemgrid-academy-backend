@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -18,6 +19,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import type { User } from '../../database/entities';
 import { CreateInstructorAssignmentDto } from './dto/create-instructor-assignment.dto';
 import { CreateInstructorLessonDto } from './dto/create-instructor-lesson.dto';
+import { UpdateInstructorLessonDto } from './dto/update-instructor-lesson.dto';
 import { GradeInstructorSubmissionDto } from './dto/grade-instructor-submission.dto';
 import { MarkInstructorAttendanceDto } from './dto/mark-instructor-attendance.dto';
 import { InstructorPortalService } from './instructor-portal.service';
@@ -106,11 +108,33 @@ export class InstructorPortalController {
     return this.service.getLessons(req.user.id, courseId);
   }
 
+  @Get('courses/:courseId/modules')
+  courseModules(
+    @Req() req: AuthenticatedRequest,
+    @Param('courseId') courseId: string,
+  ) {
+    return this.service.getCourseModules(req.user.id, courseId);
+  }
+
   @Post('lessons')
   createLesson(
     @Req() req: AuthenticatedRequest,
     @Body() dto: CreateInstructorLessonDto,
   ) {
     return this.service.createLesson(req.user.id, dto);
+  }
+
+  @Patch('lessons/:id')
+  updateLesson(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() dto: UpdateInstructorLessonDto,
+  ) {
+    return this.service.updateLesson(req.user.id, id, dto);
+  }
+
+  @Delete('lessons/:id')
+  deleteLesson(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
+    return this.service.deleteLesson(req.user.id, id);
   }
 }

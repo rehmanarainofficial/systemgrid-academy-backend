@@ -12,6 +12,7 @@ import {
   Attendance,
   Batch,
   ClassSchedule,
+  CourseModule,
   Enrollment,
   Instructor,
   Lesson,
@@ -19,6 +20,7 @@ import {
 } from '../../database/entities';
 import { CreateInstructorAssignmentDto } from './dto/create-instructor-assignment.dto';
 import { CreateInstructorLessonDto } from './dto/create-instructor-lesson.dto';
+import { UpdateInstructorLessonDto } from './dto/update-instructor-lesson.dto';
 import { GradeInstructorSubmissionDto } from './dto/grade-instructor-submission.dto';
 import { MarkInstructorAttendanceDto } from './dto/mark-instructor-attendance.dto';
 import { StudentNotificationsService } from '../notifications/student-notifications.service';
@@ -376,11 +378,28 @@ export class InstructorPortalService {
       description: l.description ?? '',
       courseId: l.course.id,
       courseTitle: l.course.title,
+      moduleId: l.module?.id ?? '',
       moduleTitle: l.module?.title ?? '',
       videoUrl: l.videoUrl ?? '',
       resourceUrl: l.resourceUrl ?? '',
-      durationMinutes: l.durationMinutes ?? null,
+      durationMinutes: l.durationMinutes ?? 0,
       isPublished: l.isPublished,
+    }));
+  }
+
+  async getCourseModules(userId: string, courseId: string) {
+    const courseIds = await this.ownCourseIds(userId);
+    if (!courseIds.includes(courseId)) {
+      throw new ForbiddenException('You do not teach this course');
+    }
+    const modules = await this.dataSource.getRepository(CourseModule).find({
+      where: { course: { id: courseId } },
+      order: { sortOrder: 'ASC' },
+    });
+    return modules.map((module) => ({
+      id: module.id,
+      title: module.title,
+      sortOrder: module.sortOrder,
     }));
   }
 
@@ -402,6 +421,36 @@ export class InstructorPortalService {
       }),
     );
     return { id: lesson.id, message: 'Lesson uploaded' };
+  }
+
+  async updateLesson(userId: string, lessonId: string, dto: UpdateInstructorLessonDto) {
+    const courseIds = await this.ownCourseIds(userId);
+    const repo = this.dataSource.getRepository(Lesson);
+    const lesson = await repo.findOne({
+      where: { id: lessonId, course: { id: In(courseIds) } },
+      relations: { course: true, module: true },
+    });
+    if (!lesson) throw new NotFoundException('Lesson not found');
+    if (dto.title !== undefined) lesson.title = dto.title.trim();
+    if (dto.description !== undefined) lesson.description = dto.description.trim() || undefined;
+    if (dto.videoUrl !== undefined) lesson.videoUrl = dto.videoUrl || undefined;
+    if (dto.resourceUrl !== undefined) lesson.resourceUrl = dto.resourceUrl || undefined;
+    if (dto.durationMinutes !== undefined) lesson.durationMinutes = dto.durationMinutes;
+    if (dto.moduleId !== undefined) lesson.module = dto.moduleId ? ({ id: dto.moduleId } as never) : undefined;
+    if (dto.isPublished !== undefined) lesson.isPublished = dto.isPublished;
+    await repo.save(lesson);
+    return { id: lesson.id, message: 'Lesson updated' };
+  }
+
+  async deleteLesson(userId: string, lessonId: string) {
+    const courseIds = await this.ownCourseIds(userId);
+    const repo = this.dataSource.getRepository(Lesson);
+    const lesson = await repo.findOne({
+      where: { id: lessonId, course: { id: In(courseIds) } },
+    });
+    if (!lesson) throw new NotFoundException('Lesson not found');
+    await repo.remove(lesson);
+    return { message: 'Lesson deleted' };
   }
 
   private async ownCourseIds(userId: string): Promise<string[]> {
