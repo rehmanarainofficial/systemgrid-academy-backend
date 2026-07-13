@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, MoreThanOrEqual, Repository } from 'typeorm';
 import {
   Attendance,
   Assignment,
@@ -359,6 +359,12 @@ export class StudentPortalService {
 
     if (!enrollmentIds.length) {
       return {
+        student: {
+          name: student.user.name,
+          email: student.user.email,
+          phone: student.user.phone ?? '',
+          city: student.city ?? '',
+        },
         summary: {
           totalPayable: 0,
           paidAmount: 0,
@@ -443,6 +449,12 @@ export class StudentPortalService {
     );
 
     return {
+      student: {
+        name: student.user.name,
+        email: student.user.email,
+        phone: student.user.phone ?? '',
+        city: student.city ?? '',
+      },
       summary: {
         totalPayable,
         paidAmount,
@@ -889,6 +901,9 @@ export class StudentPortalService {
           Number(enrollment.progressPercentage),
         );
         const nextLesson = lessons[completedLessons]?.title ?? lessons.at(-1)?.title ?? '';
+        const nextScheduledClass = enrollment.batch?.id
+          ? await this.getNextScheduledClass(enrollment.batch.id)
+          : null;
 
         return {
           enrollmentId: enrollment.id,
@@ -910,6 +925,7 @@ export class StudentPortalService {
           totalLessons: lessons.length,
           completedLessons,
           nextLesson,
+          nextScheduledClass,
         };
       }),
     );
@@ -1390,6 +1406,24 @@ export class StudentPortalService {
 
   private completedLessonCount(totalLessons: number, progress: number) {
     return Math.min(Math.round((totalLessons * progress) / 100), totalLessons);
+  }
+
+  private async getNextScheduledClass(batchId: string) {
+    const today = getPakistanDateString();
+    const schedule = await this.schedulesRepository.findOne({
+      where: {
+        batch: { id: batchId },
+        status: 'upcoming' as never,
+        date: MoreThanOrEqual(today),
+      },
+      relations: { lesson: true },
+      order: { date: 'ASC', startTime: 'ASC' },
+    });
+    if (!schedule) return null;
+    return {
+      title: schedule.lesson?.title ?? 'Live class',
+      date: schedule.date,
+    };
   }
 
   private nextClassDate(classDays: string[]) {

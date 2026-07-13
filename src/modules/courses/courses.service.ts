@@ -54,8 +54,14 @@ export class CoursesService {
       skip: (page - 1) * limit,
       take: limit,
     });
+    const mappedItems = await Promise.all(
+      items.map(async (course) => ({
+        ...this.mapPublicCourseListItem(course),
+        ...(await this.getCourseScheduleSummary(course.id)),
+      })),
+    );
     return {
-      items: items.map((course) => this.mapPublicCourseListItem(course)),
+      items: mappedItems,
       meta: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
     };
   }
@@ -142,7 +148,12 @@ export class CoursesService {
     course.outcomes = outcomes;
     course.faqs = faqs;
 
-    return this.mapPublicCourseDetail(course, offers, relatedCourses.filter((item) => item.id !== course.id).slice(0, 3));
+    const schedule = await this.getCourseScheduleSummary(course.id);
+    const detail = this.mapPublicCourseDetail(course, offers, relatedCourses.filter((item) => item.id !== course.id).slice(0, 3));
+    return {
+      ...detail,
+      course: { ...detail.course, ...schedule },
+    };
   }
 
   async findAdminCourses(query: AdminCoursesQueryDto) {
@@ -761,5 +772,41 @@ export class CoursesService {
 
   private offerAmount(offers: Offer[], slug: string, fallback: number) {
     return Number(offers.find((offer) => offer.slug === slug)?.discountAmount ?? fallback);
+  }
+
+  private async getCourseScheduleSummary(courseId: string) {
+    const batch = await this.dataSource.getRepository(Batch).findOne({
+      where: {
+        course: { id: courseId },
+        status: In(['upcoming', 'active']),
+      },
+      order: { startDate: 'ASC' },
+    });
+    if (!batch) {
+      return {
+        classDaysCount: 0,
+        classHoursPerSession: 0,
+        classScheduleLabel: '',
+      };
+    }
+    const classDays = (batch.classDays ?? []).filter(Boolean);
+    const classHoursPerSession = this.classDurationHours(batch.startTime, batch.endTime);
+    const daysPart = classDays.length ? `${classDays.length} days class` : '';
+    const hoursPart = classHoursPerSession ? `${classHoursPerSession} hours each` : '';
+    return {
+      classDaysCount: classDays.length,
+      classHoursPerSession,
+      classScheduleLabel: [daysPart, hoursPart].filter(Boolean).join(' · '),
+    };
+  }
+
+  private classDurationHours(startTime?: string, endTime?: string) {
+    if (!startTime || !endTime) return 0;
+    const [startHour, startMinute] = startTime.split(':').map(Number);
+    const [endHour, endMinute] = endTime.split(':').map(Number);
+    const minutes = endHour * 60 + endMinute - (startHour * 60 + startMinute);
+    if (minutes <= 0) return 0;
+    const hours = Math.round((minutes / 60) * 10) / 10;
+    return Number.isInteger(hours) ? hours : hours;
   }
 }
