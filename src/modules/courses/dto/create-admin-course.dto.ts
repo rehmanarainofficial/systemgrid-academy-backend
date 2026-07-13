@@ -166,7 +166,7 @@ export class CreateAdminCourseDto {
 
   @IsOptional()
   @IsInt()
-  @Min(0)
+  @Min(1)
   displayOrder?: number;
 
   @IsOptional()

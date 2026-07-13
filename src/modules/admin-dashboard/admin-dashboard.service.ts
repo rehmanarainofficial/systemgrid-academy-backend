@@ -39,7 +39,11 @@ export class AdminDashboardService {
   async getStats() {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const sixMonthStart = new Date(now.getFullYear(), now.getMonth() - 5, 1);
     const today = now.toISOString().slice(0, 10);
+    const monthStartKey = monthStart.toISOString().slice(0, 10);
+    const sixMonthStartKey = sixMonthStart.toISOString().slice(0, 10);
+    const months = this.getLastSixMonths(now);
 
     const [
       totalStudents,
@@ -47,11 +51,12 @@ export class AdminDashboardService {
       activeCourses,
       activeBatches,
       leadRows,
-      allPayments,
-      pendingFeePlans,
-      attendanceRows,
+      monthlyRevenueRow,
+      pendingFeesRow,
+      attendanceRow,
       certificatesIssued,
-      growthStudents,
+      studentGrowthRows,
+      revenueRows,
       recentLeads,
       recentStudents,
       upcomingBatches,
@@ -66,11 +71,42 @@ export class AdminDashboardService {
         .addSelect('COUNT(*)', 'count')
         .groupBy('lead.status')
         .getRawMany<{ status: string; count: string }>(),
-      this.payments.find({ where: { status: 'verified' } }),
-      this.feePlans.find({ select: { pendingAmount: true } }),
-      this.attendance.find(),
+      this.payments
+        .createQueryBuilder('payment')
+        .select('COALESCE(SUM(payment.amount), 0)', 'total')
+        .where('payment.status = :status', { status: 'verified' })
+        .andWhere('payment.paymentDate >= :monthStart', { monthStart: monthStartKey })
+        .getRawOne<{ total: string }>(),
+      this.feePlans
+        .createQueryBuilder('feePlan')
+        .select('COALESCE(SUM(feePlan.pendingAmount), 0)', 'total')
+        .getRawOne<{ total: string }>(),
+      this.attendance
+        .createQueryBuilder('attendance')
+        .select('COUNT(*)', 'total')
+        .addSelect(
+          "SUM(CASE WHEN attendance.status IN ('present', 'late') THEN 1 ELSE 0 END)",
+          'attended',
+        )
+        .getRawOne<{ total: string; attended: string }>(),
       this.certificates.count({ where: { status: 'issued' } }),
-      this.students.find({ select: { id: true, createdAt: true } }),
+      this.students
+        .createQueryBuilder('student')
+        .select("TO_CHAR(student.createdAt, 'YYYY-MM')", 'month')
+        .addSelect('COUNT(*)', 'count')
+        .where('student.createdAt >= :sixMonthStart', { sixMonthStart })
+        .groupBy("TO_CHAR(student.createdAt, 'YYYY-MM')")
+        .getRawMany<{ month: string; count: string }>(),
+      this.payments
+        .createQueryBuilder('payment')
+        .select("TO_CHAR(payment.paymentDate, 'YYYY-MM')", 'month')
+        .addSelect('COALESCE(SUM(payment.amount), 0)', 'amount')
+        .where('payment.status = :status', { status: 'verified' })
+        .andWhere('payment.paymentDate >= :sixMonthStart', {
+          sixMonthStart: sixMonthStartKey,
+        })
+        .groupBy("TO_CHAR(payment.paymentDate, 'YYYY-MM')")
+        .getRawMany<{ month: string; amount: string }>(),
       this.leads.find({ order: { createdAt: 'DESC' }, take: 5 }),
       this.students.find({
         relations: { user: true, enrollments: { course: true } },
@@ -92,8 +128,15 @@ export class AdminDashboardService {
       leadRows.map((item) => [item.status, Number(item.count)]),
     );
     const totalLeads = Object.values(leadCounts).reduce((sum, value) => sum + value, 0);
-    const attended = attendanceRows.filter((item) => ['present', 'late'].includes(item.status)).length;
-    const months = this.getLastSixMonths(now);
+    const growthByMonth = Object.fromEntries(
+      studentGrowthRows.map((item) => [item.month, Number(item.count)]),
+    );
+    const revenueByMonth = Object.fromEntries(
+      revenueRows.map((item) => [item.month, Number(item.amount)]),
+    );
+    const attendanceTotal = Number(attendanceRow?.total ?? 0);
+    const attendanceAttended = Number(attendanceRow?.attended ?? 0);
+
     const enrollmentCounts = upcomingBatches.length
       ? await this.enrollments
           .createQueryBuilder('enrollment')
@@ -118,12 +161,10 @@ export class AdminDashboardService {
         convertedLeads: leadCounts.converted ?? 0,
         activeCourses,
         activeBatches,
-        monthlyRevenue: allPayments
-          .filter((payment) => new Date(payment.paymentDate) >= monthStart)
-          .reduce((sum, payment) => sum + Number(payment.amount), 0),
-        pendingFees: pendingFeePlans.reduce((sum, plan) => sum + Number(plan.pendingAmount ?? 0), 0),
-        averageAttendance: attendanceRows.length
-          ? Math.round((attended / attendanceRows.length) * 100)
+        monthlyRevenue: Number(monthlyRevenueRow?.total ?? 0),
+        pendingFees: Number(pendingFeesRow?.total ?? 0),
+        averageAttendance: attendanceTotal
+          ? Math.round((attendanceAttended / attendanceTotal) * 100)
           : 0,
         certificatesIssued,
       },
@@ -136,15 +177,11 @@ export class AdminDashboardService {
       },
       studentGrowth: months.map((month) => ({
         month: month.label,
-        students: growthStudents.filter(
-          (student) => this.monthKey(student.createdAt) === month.key,
-        ).length,
+        students: growthByMonth[month.key] ?? 0,
       })),
       revenueOverview: months.map((month) => ({
         month: month.label,
-        amount: allPayments
-          .filter((payment) => this.monthKey(new Date(payment.paymentDate)) === month.key)
-          .reduce((sum, payment) => sum + Number(payment.amount), 0),
+        amount: revenueByMonth[month.key] ?? 0,
       })),
       recentLeads: recentLeads.map((lead) => ({
         id: lead.id,

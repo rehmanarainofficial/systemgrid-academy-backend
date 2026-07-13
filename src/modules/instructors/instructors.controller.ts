@@ -33,7 +33,9 @@ export class InstructorsController {
     @UploadedFile() file: UploadedFileData,
     @Req() request: AdminRequest,
   ) {
-    return this.uploadsService.saveImage(file, 'instructors', request.user.id);
+    return this.uploadsService.saveImage(file, 'instructors', request.user.id, {
+      forceS3: true,
+    });
   }
 
   @Get(':id') findOne(@Param('id') id: string) { return this.service.findOne(id); }

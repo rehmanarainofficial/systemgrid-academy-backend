@@ -3,13 +3,17 @@ import * as bcrypt from 'bcryptjs';
 import { Brackets, DataSource } from 'typeorm';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { AuditLog, Batch, Instructor, User } from '../../database/entities';
+import { UploadsService } from '../uploads/uploads.service';
 import { AdminInstructorsQueryDto } from './dto/admin-instructors-query.dto';
 import { CreateInstructorDto } from './dto/create-instructor.dto';
 import { UpdateInstructorDto } from './dto/update-instructor.dto';
 
 @Injectable()
 export class InstructorsService {
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly uploadsService: UploadsService,
+  ) {}
 
   async findAll(query: AdminInstructorsQueryDto) {
     const repository = this.dataSource.getRepository(Instructor);
@@ -99,7 +103,14 @@ export class InstructorsService {
     if (dto.phone) instructor.phone = dto.phone.trim();
     if (dto.specialization) instructor.specialization = dto.specialization.trim();
     if (dto.bio !== undefined) instructor.bio = dto.bio.trim() || undefined;
-    if (dto.imageUrl !== undefined) instructor.imageUrl = dto.imageUrl.trim() || undefined;
+    if (dto.imageUrl !== undefined) {
+      const nextImageUrl =
+        typeof dto.imageUrl === 'string' ? dto.imageUrl.trim() || undefined : undefined;
+      if (instructor.imageUrl && instructor.imageUrl !== nextImageUrl) {
+        await this.uploadsService.deleteByUrl(instructor.imageUrl);
+      }
+      instructor.imageUrl = nextImageUrl;
+    }
     if (dto.isActive !== undefined) instructor.isActive = dto.isActive;
     if (dto.showOnWebsite !== undefined) instructor.showOnWebsite = dto.showOnWebsite;
     await this.dataSource.getRepository(Instructor).save(instructor);
@@ -119,6 +130,9 @@ export class InstructorsService {
     const instructor = await this.entity(id);
     const batches = await this.dataSource.getRepository(Batch).count({ where: { instructor: { id } } });
     if (batches) throw new ConflictException('This instructor is assigned to batches. Deactivate instead.');
+    if (instructor.imageUrl) {
+      await this.uploadsService.deleteByUrl(instructor.imageUrl);
+    }
     await this.dataSource.getRepository(Instructor).remove(instructor);
     await this.log(actorId, 'delete', id);
     return { message: 'Instructor deleted successfully' };

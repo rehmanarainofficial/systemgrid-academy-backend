@@ -7,6 +7,7 @@ import {
   Matches,
   MaxLength,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 
 const namePattern = /^[A-Za-z]+(?: [A-Za-z]+)*$/;
@@ -45,8 +46,9 @@ export class UpdateInstructorDto {
   bio?: string;
 
   @IsOptional()
-  @IsUrl()
-  imageUrl?: string;
+  @ValidateIf((_, value) => value != null && value !== '')
+  @IsUrl({ require_tld: false })
+  imageUrl?: string | null;
 
   @IsOptional()
   @IsBoolean()

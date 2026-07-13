@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, DataSource, Repository } from 'typeorm';
 import { AuditLog, BlogPost, User } from '../../database/entities';
+import { UploadsService } from '../uploads/uploads.service';
 import { AdminBlogQueryDto, PublicBlogQueryDto } from './dto/blog-query.dto';
 import { CreateBlogPostDto } from './dto/create-blog-post.dto';
 import { UpdateBlogPostDto } from './dto/update-blog-post.dto';
@@ -12,6 +13,7 @@ export class BlogsService {
     @InjectRepository(BlogPost)
     private readonly blogPostsRepository: Repository<BlogPost>,
     private readonly dataSource: DataSource,
+    private readonly uploadsService: UploadsService,
   ) {}
 
   async findPublicPosts(query: PublicBlogQueryDto) {
@@ -149,8 +151,16 @@ export class BlogsService {
     if (dto.title !== undefined) post.title = dto.title.trim();
     if (dto.excerpt !== undefined) post.excerpt = dto.excerpt.trim();
     if (dto.content !== undefined) post.content = dto.content.trim();
-    if (dto.coverImageUrl !== undefined)
-      post.coverImageUrl = dto.coverImageUrl.trim() || undefined;
+    if (dto.coverImageUrl !== undefined) {
+      const nextCoverImageUrl =
+        typeof dto.coverImageUrl === 'string'
+          ? dto.coverImageUrl.trim() || undefined
+          : undefined;
+      if (post.coverImageUrl && post.coverImageUrl !== nextCoverImageUrl) {
+        await this.uploadsService.deleteByUrl(post.coverImageUrl);
+      }
+      post.coverImageUrl = nextCoverImageUrl;
+    }
     if (dto.category !== undefined) post.category = dto.category.trim();
     if (dto.tags !== undefined) post.tags = this.cleanTags(dto.tags);
     if (dto.seoTitle !== undefined)
@@ -189,6 +199,9 @@ export class BlogsService {
   async remove(id: string, actorId: string) {
     const post = await this.blogPostsRepository.findOne({ where: { id } });
     if (!post) throw new NotFoundException('Blog post not found');
+    if (post.coverImageUrl) {
+      await this.uploadsService.deleteByUrl(post.coverImageUrl);
+    }
     await this.blogPostsRepository.remove(post);
     await this.logAction(actorId, 'delete', id, {
       title: post.title,

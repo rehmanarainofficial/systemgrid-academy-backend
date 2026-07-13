@@ -70,7 +70,9 @@ export class AdminBlogsController {
     @UploadedFile() file: UploadedFileData,
     @Req() request: AdminRequest,
   ) {
-    return this.uploadsService.saveImage(file, 'blogs', request.user.id);
+    return this.uploadsService.saveImage(file, 'blogs', request.user.id, {
+      forceS3: true,
+    });
   }
 
   @Post()

@@ -50,7 +50,7 @@ export class CoursesService {
     const [items, total] = await this.coursesRepository.findAndCount({
       where,
       relations: { category: true, tools: true },
-      order: { displayOrder: 'ASC', isFeatured: 'DESC', createdAt: 'DESC' },
+      order: { displayOrder: 'ASC', createdAt: 'ASC' },
       skip: (page - 1) * limit,
       take: limit,
     });
@@ -84,7 +84,7 @@ export class CoursesService {
           ? { isPublished: true, category: { id: course.category.id } }
           : { isPublished: true },
         relations: { category: true },
-        order: { displayOrder: 'ASC', isFeatured: 'DESC', createdAt: 'DESC' },
+        order: { displayOrder: 'ASC', createdAt: 'ASC' },
         take: 8,
       }),
       this.dataSource.getRepository(CourseQuarter).find({
@@ -183,11 +183,18 @@ export class CoursesService {
   }
 
   async getAdminFilterOptions() {
-    const categories = await this.dataSource.getRepository(CourseCategory).find({
-      where: { isActive: true },
-      order: { sortOrder: 'ASC', name: 'ASC' },
-    });
-    return { categories: categories.map(({ id, name, slug }) => ({ id, name, slug })) };
+    const [categories, totalCourses] = await Promise.all([
+      this.dataSource.getRepository(CourseCategory).find({
+        where: { isActive: true },
+        order: { sortOrder: 'ASC', name: 'ASC' },
+      }),
+      this.coursesRepository.count(),
+    ]);
+    return {
+      categories: categories.map(({ id, name, slug }) => ({ id, name, slug })),
+      nextDisplayOrder: totalCourses + 1,
+      totalCourses,
+    };
   }
 
   async findAdminCourse(id: string) {
@@ -226,7 +233,7 @@ export class CoursesService {
         discountFee: dto.discountFee,
         isFeatured: dto.isFeatured,
         isPublished: dto.isPublished,
-        displayOrder: dto.displayOrder ?? 0,
+        displayOrder: 0,
       }));
       if (dto.outline !== undefined) {
         await this.syncOutline(manager, created, dto.outline);
@@ -240,6 +247,7 @@ export class CoursesService {
       }
       return created;
     });
+    await this.applyDisplayOrder(course.id, dto.displayOrder);
     await this.logAction(actorId, 'create', course.id, { slug, isPublished: course.isPublished });
     return this.findAdminCourse(course.id);
   }
@@ -252,9 +260,10 @@ export class CoursesService {
       course.slug = await this.createUniqueSlug(slug, id);
     }
     if (dto.categoryId !== undefined) course.category = await this.resolveCategory(dto.categoryId);
+    const pendingDisplayOrder = dto.displayOrder;
     const fields: Array<keyof UpdateAdminCourseDto> = [
       'title', 'shortDescription', 'description', 'thumbnail', 'level', 'duration',
-      'durationUnit', 'mode', 'language', 'fee', 'discountFee', 'isFeatured', 'isPublished', 'displayOrder',
+      'durationUnit', 'mode', 'language', 'fee', 'discountFee', 'isFeatured', 'isPublished',
     ];
     for (const field of fields) {
       if (dto[field] !== undefined) (course as unknown as Record<string, unknown>)[field] = dto[field];
@@ -265,6 +274,9 @@ export class CoursesService {
     }
     if (dto.techStack !== undefined) course.techStack = this.cleanTechStack(dto.techStack);
     await this.coursesRepository.save(course);
+    if (pendingDisplayOrder !== undefined) {
+      await this.applyDisplayOrder(id, pendingDisplayOrder);
+    }
     if (dto.outline !== undefined) {
       await this.dataSource.transaction((manager) => this.syncOutline(manager, course, dto.outline!));
     } else if (dto.modules !== undefined) {
@@ -297,8 +309,47 @@ export class CoursesService {
       throw new ConflictException('Remove linked batches, modules, and lessons before deleting this course.');
     }
     await this.coursesRepository.remove(course);
+    await this.normalizeAllDisplayOrders();
     await this.logAction(actorId, 'delete', id, { title: course.title });
     return { message: 'Course deleted successfully' };
+  }
+
+  private async applyDisplayOrder(courseId: string, targetOrder?: number) {
+    const courses = await this.coursesRepository.find({
+      order: { displayOrder: 'ASC', createdAt: 'ASC' },
+    });
+    if (!courses.length) return;
+
+    const current = courses.find((course) => course.id === courseId);
+    if (!current) return;
+
+    const others = courses.filter((course) => course.id !== courseId);
+    const maxPosition = others.length + 1;
+    const position = Math.min(
+      Math.max(1, Math.floor(targetOrder ?? maxPosition)),
+      maxPosition,
+    );
+
+    others.splice(position - 1, 0, current);
+    await this.normalizeCourseList(others);
+  }
+
+  private async normalizeAllDisplayOrders() {
+    const courses = await this.coursesRepository.find({
+      order: { displayOrder: 'ASC', createdAt: 'ASC' },
+    });
+    await this.normalizeCourseList(courses);
+  }
+
+  private async normalizeCourseList(courses: Course[]) {
+    await Promise.all(
+      courses.map((course, index) => {
+        const nextOrder = index + 1;
+        return course.displayOrder === nextOrder
+          ? Promise.resolve()
+          : this.coursesRepository.update(course.id, { displayOrder: nextOrder });
+      }),
+    );
   }
 
   private async attachCourseMetrics(courses: Course[]) {
@@ -589,6 +640,7 @@ export class CoursesService {
       discountFee: course.discountFee === undefined || course.discountFee === null ? null : Number(course.discountFee),
       isFeatured: course.isFeatured,
       isPublished: course.isPublished,
+      displayOrder: course.displayOrder ?? 0,
     };
   }
 

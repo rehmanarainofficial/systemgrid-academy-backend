@@ -1,6 +1,6 @@
-# S3 Blog Image Storage
+# S3 Blog and Instructor Image Storage
 
-SystemGrid Academy uploads blog cover images from the NestJS API only. AWS credentials must never be exposed through the Next.js frontend or committed to Git.
+SystemGrid Academy uploads blog cover images and instructor profile photos from the NestJS API only. These images always go to AWS S3, even when `STORAGE_DRIVER=local` is set for other uploads. AWS credentials must never be exposed through the Next.js frontend or committed to Git.
 
 ## 1. Rotate exposed credentials
 
@@ -19,17 +19,20 @@ The AWS SDK uses its default Node.js credential provider chain. On EC2/ECS, pref
 
 ## 3. Least-privilege writer policy
 
-Attach a policy like this to the API role/user. Replace the bucket ARN and keep access restricted to the `blogs/` prefix.
+Attach a policy like this to the API role/user. Replace the bucket ARN and keep access restricted to the `blogs/` and `instructors/` prefixes.
 
 ```json
 {
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "WriteAcademyBlogImages",
+      "Sid": "WriteAcademyPublicImages",
       "Effect": "Allow",
-      "Action": ["s3:PutObject"],
-      "Resource": "arn:aws:s3:::YOUR_BUCKET_NAME/blogs/*"
+      "Action": ["s3:PutObject", "s3:DeleteObject"],
+      "Resource": [
+        "arn:aws:s3:::YOUR_BUCKET_NAME/blogs/*",
+        "arn:aws:s3:::YOUR_BUCKET_NAME/instructors/*"
+      ]
     }
   ]
 }
@@ -48,4 +51,4 @@ npm run build
 npm run migration:run
 ```
 
-The API accepts JPG, PNG, and WebP blog images up to 5 MB. Only authenticated Admin and Super Admin users can upload or publish blog content.
+The API accepts JPG, PNG, and WebP blog and instructor images up to 5 MB. Only authenticated Admin and Super Admin users can upload or publish this content.

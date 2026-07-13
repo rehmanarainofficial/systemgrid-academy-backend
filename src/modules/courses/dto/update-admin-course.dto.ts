@@ -32,7 +32,7 @@ export class UpdateAdminCourseDto {
   @IsOptional() @IsNumber() @Min(0) discountFee?: number;
   @IsOptional() @IsBoolean() isFeatured?: boolean;
   @IsOptional() @IsBoolean() isPublished?: boolean;
-  @IsOptional() @IsInt() @Min(0) displayOrder?: number;
+  @IsOptional() @IsInt() @Min(1) displayOrder?: number;
   @IsOptional() @ValidateNested({ each: true }) @Type(() => AdminCourseModuleDto) modules?: AdminCourseModuleDto[];
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => AdminCourseQuarterDto) outline?: AdminCourseQuarterDto[];
 }
