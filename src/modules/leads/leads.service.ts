@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -21,6 +22,8 @@ import {
   StudentProfile,
   User,
 } from '../../database/entities';
+import { AdmissionEmailService } from '../admissions/email.service';
+import { AdminAlertsService } from '../notifications/admin-alerts.service';
 import { AdminLeadsQueryDto } from './dto/admin-leads-query.dto';
 import { ConvertLeadToStudentDto } from './dto/convert-lead-to-student.dto';
 import { CreateLeadDto } from './dto/create-lead.dto';
@@ -28,13 +31,17 @@ import { UpdateLeadDto } from './dto/update-lead.dto';
 
 @Injectable()
 export class LeadsService {
+  private readonly logger = new Logger(LeadsService.name);
+
   constructor(
     @InjectRepository(Lead)
     private readonly leadsRepository: Repository<Lead>,
     private readonly dataSource: DataSource,
+    private readonly adminAlertsService: AdminAlertsService,
+    private readonly admissionEmailService: AdmissionEmailService,
   ) {}
 
-  create(createLeadDto: CreateLeadDto) {
+  async create(createLeadDto: CreateLeadDto) {
     const {
       city,
       educationLevel,
@@ -55,7 +62,30 @@ export class LeadsService {
       status: 'new',
     });
 
-    return this.leadsRepository.save(lead);
+    const saved = await this.leadsRepository.save(lead);
+
+    await this.adminAlertsService.notifyAdmins({
+      title: 'New lead received',
+      message: `${saved.name} submitted a lead${saved.courseInterest ? ` for ${saved.courseInterest}` : ''}.`,
+      type: 'info',
+      actionUrl: '/admin/leads',
+    });
+
+    try {
+      await this.admissionEmailService.sendNewLeadAlertEmail({
+        name: saved.name,
+        phone: saved.phone,
+        email: saved.email,
+        courseInterest: saved.courseInterest,
+        source: saved.source,
+        message: saved.message,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'unknown error';
+      this.logger.warn(`Lead alert email failed for ${saved.id}: ${message}`);
+    }
+
+    return saved;
   }
 
   async findAdminList(query: AdminLeadsQueryDto) {
@@ -178,7 +208,7 @@ export class LeadsService {
     dto: ConvertLeadToStudentDto,
     actorId: string,
   ) {
-    return this.dataSource.transaction(async (manager) => {
+    const result = await this.dataSource.transaction(async (manager) => {
       const lead = await manager.findOne(Lead, { where: { id } });
       if (!lead) throw new NotFoundException('Lead not found');
       if (lead.status === 'converted') {
@@ -288,6 +318,15 @@ export class LeadsService {
         passwordSetupRequired: !dto.password,
       };
     });
+
+    await this.adminAlertsService.notifyAdmins({
+      title: 'Lead converted to student',
+      message: `${result.student.name} was converted from a lead to a student account.`,
+      type: 'info',
+      actionUrl: `/admin/students/${result.student.id}`,
+    });
+
+    return result;
   }
 
   private mapLead(lead: Lead) {

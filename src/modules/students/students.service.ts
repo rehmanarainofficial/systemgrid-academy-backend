@@ -25,6 +25,7 @@ import {
   StudentProfile,
   User,
 } from '../../database/entities';
+import { AdminAlertsService } from '../notifications/admin-alerts.service';
 import { AdminStudentsQueryDto } from './dto/admin-students-query.dto';
 import { CreateAdminStudentDto } from './dto/create-admin-student.dto';
 import { EnrollAdminStudentDto } from './dto/enroll-admin-student.dto';
@@ -39,6 +40,7 @@ export class StudentsService {
     @InjectRepository(StudentProfile)
     private readonly studentsRepository: Repository<StudentProfile>,
     private readonly dataSource: DataSource,
+    private readonly adminAlertsService: AdminAlertsService,
   ) {}
 
   async findAdminList(query: AdminStudentsQueryDto) {
@@ -382,6 +384,14 @@ export class StudentsService {
       }
       return student.id;
     });
+
+    await this.adminAlertsService.notifyAdmins({
+      title: 'New student added',
+      message: `${dto.name.trim()} was added as a student from the admin panel.`,
+      type: 'info',
+      actionUrl: `/admin/students/${studentId}`,
+    });
+
     return this.findAdminDetail(studentId);
   }
 

@@ -126,6 +126,50 @@ export class AdmissionEmailService {
     });
   }
 
+  async sendNewLeadAlertEmail(input: {
+    name: string;
+    phone: string;
+    email?: string;
+    courseInterest?: string;
+    source: string;
+    message?: string;
+  }) {
+    const to =
+      this.configService.get<string>('ADMIN_ALERT_EMAIL')?.trim() ||
+      'info@thesystemgrid.com';
+    const adminUrl = this.frontendUrl('/admin/leads');
+    const lines = [
+      'A new lead was submitted on SystemGrid Academy.',
+      '',
+      `Name: ${input.name}`,
+      `Phone: ${input.phone}`,
+      input.email ? `Email: ${input.email}` : null,
+      input.courseInterest ? `Course interest: ${input.courseInterest}` : null,
+      `Source: ${input.source}`,
+      input.message ? `Message: ${input.message}` : null,
+      '',
+      `Open admin leads: ${adminUrl}`,
+    ].filter(Boolean);
+
+    await this.send({
+      to,
+      subject: `New lead: ${input.name}`,
+      text: lines.join('\n'),
+      html: `
+        <div style="font-family:Arial,sans-serif;line-height:1.6;color:#111">
+          <h2>New lead received</h2>
+          <p><strong>Name:</strong> ${input.name}</p>
+          <p><strong>Phone:</strong> ${input.phone}</p>
+          ${input.email ? `<p><strong>Email:</strong> ${input.email}</p>` : ''}
+          ${input.courseInterest ? `<p><strong>Course interest:</strong> ${input.courseInterest}</p>` : ''}
+          <p><strong>Source:</strong> ${input.source}</p>
+          ${input.message ? `<p><strong>Message:</strong> ${input.message}</p>` : ''}
+          <p><a href="${adminUrl}">Open leads in admin panel</a></p>
+        </div>
+      `,
+    });
+  }
+
   private async send(payload: MailPayload) {
     const host = this.configService.get<string>('MAIL_HOST');
     const user = this.configService.get<string>('MAIL_USER');

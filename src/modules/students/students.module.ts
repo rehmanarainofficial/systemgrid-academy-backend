@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { NotificationsModule } from '../notifications/notifications.module';
 import {
   Attendance,
   AdmissionApplication,
@@ -18,6 +19,7 @@ import { StudentsService } from './students.service';
 
 @Module({
   imports: [
+    NotificationsModule,
     TypeOrmModule.forFeature([
       User,
       AdmissionApplication,
