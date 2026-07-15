@@ -190,6 +190,16 @@ export class StudentPortalController {
     );
   }
 
+  @Get('class-recordings')
+  getClassRecordings(
+    @Req() request: AuthenticatedRequest,
+    @Query('search') search?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+  ) {
+    return this.studentPortalService.getClassRecordings(request.user.id, search, dateFrom, dateTo);
+  }
+
   @Get('my-courses')
   getMyCourses(@Req() request: AuthenticatedRequest) {
     return this.studentPortalService.getMyCourses(request.user.id);

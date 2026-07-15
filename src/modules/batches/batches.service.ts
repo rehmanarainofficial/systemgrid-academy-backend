@@ -12,7 +12,6 @@ import {
   Enrollment,
   FeePlan,
   Instructor,
-  Lesson,
   StudentProfile,
   User,
 } from '../../database/entities';
@@ -81,7 +80,7 @@ export class BatchesService {
     const batch = await this.batch(id);
     const [enrollments, schedules, attendance, assignments, feePlans] = await Promise.all([
       this.dataSource.getRepository(Enrollment).find({ where: { batch: { id }, status: In(['pending', 'active', 'completed']) }, relations: { student: { user: true }, course: true, batch: true }, order: { enrolledAt: 'DESC' } }),
-      this.dataSource.getRepository(ClassSchedule).find({ where: { batch: { id } }, relations: { lesson: true }, order: { date: 'ASC', startTime: 'ASC' } }),
+      this.dataSource.getRepository(ClassSchedule).find({ where: { batch: { id } }, order: { date: 'ASC', startTime: 'ASC' } }),
       this.dataSource.getRepository(Attendance).find({ where: { batch: { id } }, relations: { student: true, classSchedule: true }, order: { date: 'DESC' } }),
       this.dataSource.getRepository(Assignment).find({ where: { batch: { id } } }),
       this.dataSource.getRepository(FeePlan).find({ where: { enrollment: { batch: { id } } }, relations: { enrollment: { student: true, batch: true } } }),
@@ -120,7 +119,7 @@ export class BatchesService {
           pendingFee: feePlans.filter((plan) => plan.enrollment.id === enrollment.id).reduce((sum, plan) => sum + Number(plan.pendingAmount), 0),
         };
       }),
-      schedule: schedules.map((item) => ({ id: item.id, date: item.date, lessonTitle: item.lesson?.title ?? 'Class session', startTime: item.startTime.slice(0, 5), endTime: item.endTime.slice(0, 5), mode: item.mode, status: item.status, meetingUrl: item.meetingUrl ?? '', location: item.location ?? '' })),
+      schedule: schedules.map((item) => ({ id: item.id, date: item.date, lessonTitle: 'Interactive Live Class', startTime: item.startTime.slice(0, 5), endTime: item.endTime.slice(0, 5), mode: item.mode, status: item.status, meetingUrl: item.meetingUrl ?? '', location: item.location ?? '' })),
       attendanceRecords: Array.from(dateGroups.entries()).map(([date, records]) => ({
         id: records[0].classSchedule?.id ?? date,
         date,
@@ -250,12 +249,7 @@ export class BatchesService {
     const batch = await this.batch(id);
     assertScheduleDateWithinBatch(batch, dto.date);
     await this.validateDates(dto.date, dto.date, dto.startTime, dto.endTime);
-    let lesson: Lesson | undefined;
-    if (dto.lessonId) {
-      lesson = (await this.dataSource.getRepository(Lesson).findOne({ where: { id: dto.lessonId, course: { id: batch.course.id } } })) ?? undefined;
-      if (!lesson) throw new BadRequestException('Lesson does not belong to the batch course');
-    }
-    const schedule = await this.dataSource.getRepository(ClassSchedule).save({ batch, course: batch.course, lesson, date: dto.date, startTime: dto.startTime, endTime: dto.endTime, mode: dto.mode, meetingUrl: dto.meetingUrl?.trim() || undefined, location: dto.location?.trim() || undefined, status: dto.status ?? 'upcoming' });
+    const schedule = await this.dataSource.getRepository(ClassSchedule).save({ batch, course: batch.course, date: dto.date, startTime: dto.startTime, endTime: dto.endTime, mode: dto.mode, meetingUrl: dto.meetingUrl?.trim() || undefined, location: dto.location?.trim() || undefined, status: dto.status ?? 'upcoming' });
     await this.log(actorId, 'create_schedule', id, { scheduleId: schedule.id, date: dto.date });
     await this.studentNotifications.notifyBatchStudents(id, {
       title: 'New class scheduled',
@@ -269,7 +263,7 @@ export class BatchesService {
   async updateSchedule(id: string, scheduleId: string, dto: UpdateBatchScheduleDto, actorId: string) {
     const batch = await this.batch(id);
     const repository = this.dataSource.getRepository(ClassSchedule);
-    const schedule = await repository.findOne({ where: { id: scheduleId, batch: { id } }, relations: { lesson: true } });
+    const schedule = await repository.findOne({ where: { id: scheduleId, batch: { id } } });
     if (!schedule) throw new NotFoundException('Class schedule not found');
 
     const nextDate = dto.date ?? schedule.date;
@@ -285,15 +279,6 @@ export class BatchesService {
     if (dto.meetingUrl !== undefined) schedule.meetingUrl = dto.meetingUrl?.trim() || undefined;
     if (dto.location !== undefined) schedule.location = dto.location?.trim() || undefined;
     if (dto.status !== undefined) schedule.status = dto.status;
-    if (dto.lessonId !== undefined) {
-      if (!dto.lessonId) {
-        schedule.lesson = undefined;
-      } else {
-        const lesson = await this.dataSource.getRepository(Lesson).findOne({ where: { id: dto.lessonId, course: { id: batch.course.id } } });
-        if (!lesson) throw new BadRequestException('Lesson does not belong to the batch course');
-        schedule.lesson = lesson;
-      }
-    }
 
     await repository.save(schedule);
     await this.log(actorId, 'update_schedule', id, { scheduleId, fields: Object.keys(dto) });
@@ -308,12 +293,13 @@ export class BatchesService {
 
   async updateScheduleStatus(id: string, scheduleId: string, status: 'upcoming' | 'completed' | 'cancelled', actorId: string) {
     const repository = this.dataSource.getRepository(ClassSchedule);
-    const schedule = await repository.findOne({ where: { id: scheduleId, batch: { id } } });
+    const schedule = await repository.findOne({ where: { id: scheduleId, batch: { id } }, relations: { batch: { course: true } } });
     if (!schedule) throw new NotFoundException('Class schedule not found');
     schedule.status = status;
     await repository.save(schedule);
+    const nextScheduleId = status === 'completed' ? await this.ensureNextSchedule(schedule) : undefined;
     await this.log(actorId, 'update_schedule_status', id, { scheduleId, status });
-    return { message: 'Class schedule updated successfully', status };
+    return { message: nextScheduleId ? 'Class completed and next class scheduled automatically' : 'Class schedule updated successfully', status, nextScheduleId };
   }
 
   async updateStatus(id: string, status: 'upcoming' | 'active' | 'completed' | 'cancelled', actorId: string) { const batch = await this.repository.findOne({ where: { id } }); if (!batch) throw new NotFoundException('Batch not found'); batch.status = status; await this.repository.save(batch); await this.log(actorId, 'update_status', id, { status }); return { message: `Batch status updated to ${status}`, status }; }
@@ -327,4 +313,56 @@ export class BatchesService {
   private async ensureCode(code: string, excludedId?: string) { const item = await this.repository.findOne({ where: { code } }); if (item && item.id !== excludedId) throw new ConflictException('A batch with this code already exists'); }
   private async validateDates(startDate: string, endDate?: string, startTime?: string, endTime?: string) { if (endDate && endDate < startDate) throw new BadRequestException('End date must be on or after the start date'); if (startTime && endTime && endTime <= startTime) throw new BadRequestException('End time must be after the start time'); }
   private async log(actorId: string, action: string, recordId: string, metadata?: Record<string, unknown>) { await this.dataSource.getRepository(AuditLog).save({ user: { id: actorId } as User, action, module: 'batches', recordId, metadata }); }
+
+  private async ensureNextSchedule(schedule: ClassSchedule) {
+    const batch = schedule.batch;
+    const nextDate = this.nextClassDate(schedule.date, batch.classDays ?? [], batch.endDate ?? undefined);
+    if (!nextDate) return undefined;
+    const repository = this.dataSource.getRepository(ClassSchedule);
+    const exists = await repository.exist({ where: { batch: { id: batch.id }, date: nextDate } });
+    if (exists) return undefined;
+    const created = await repository.save({
+      batch,
+      course: batch.course,
+      date: nextDate,
+      startTime: schedule.startTime,
+      endTime: schedule.endTime,
+      mode: schedule.mode,
+      meetingUrl: schedule.meetingUrl,
+      location: schedule.location,
+      status: 'upcoming',
+    });
+    await this.studentNotifications.notifyBatchStudents(batch.id, {
+      title: 'Next class scheduled',
+      message: `The next class for ${batch.title} is scheduled on ${nextDate} at ${created.startTime.slice(0, 5)}.`,
+      type: 'class',
+      actionUrl: '/student/schedule',
+    }, ['active']);
+    return created.id;
+  }
+
+  private nextClassDate(fromDate: string, classDays: string[], endDate?: string) {
+    const targets = classDays.map((day) => weekdayIndexes[day.toLowerCase()]).filter((day): day is number => typeof day === 'number');
+    const base = new Date(`${fromDate}T00:00:00`);
+    const maxLookahead = targets.length ? 14 : 1;
+    for (let offset = 1; offset <= maxLookahead; offset += 1) {
+      const candidate = new Date(base);
+      candidate.setDate(base.getDate() + offset);
+      if (targets.length && !targets.includes(candidate.getDay())) continue;
+      const value = candidate.toISOString().slice(0, 10);
+      if (endDate && value > endDate) return undefined;
+      return value;
+    }
+    return undefined;
+  }
 }
+
+const weekdayIndexes: Record<string, number> = {
+  sunday: 0,
+  monday: 1,
+  tuesday: 2,
+  wednesday: 3,
+  thursday: 4,
+  friday: 5,
+  saturday: 6,
+};

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import {
   Course,
@@ -43,7 +43,6 @@ export class PricingService {
     if (!course) throw new NotFoundException('Published course not found');
 
     const courseDurationMonths = this.durationMonths(course);
-    this.validatePlanAvailability(input.pricingPlanType, courseDurationMonths);
 
     const monthlyFee = await this.monthlyFee(course);
     const offers = await this.activeOffers();
@@ -51,13 +50,13 @@ export class PricingService {
     const planDiscountAmount = this.planDiscount(input.pricingPlanType, grossAmount, offers);
     const scholarshipDiscountAmount =
       input.scholarshipEligible && input.pricingPlanType === 'quarterly'
-        ? this.percent(grossAmount, this.offerPercentage(offers, 'scholarship-discount', 50))
+        ? this.percent(grossAmount, this.offerPercentage(offers, 'scholarship-discount'))
         : 0;
     // Lenient: an invalid/inactive code simply yields no referral discount
     // instead of breaking the whole price calculation.
     const referral = input.referralCode ? await this.findReferralCode(input.referralCode) : undefined;
     const referralCouponDiscountAmount = referral
-      ? this.offerAmount(offers, 'referral-new-student-discount', 500)
+      ? this.offerAmount(offers, 'referral-new-student-discount')
       : 0;
     const referralInvalid = Boolean(input.referralCode?.trim()) && !referral;
     const beforeWallet = Math.max(
@@ -94,12 +93,6 @@ export class PricingService {
     return Math.max(1, Math.ceil(Number(course.duration) / 4));
   }
 
-  validatePlanAvailability(plan: PricingPlanType, durationMonths: number) {
-    if (plan === 'quarterly' && durationMonths < 3) {
-      throw new BadRequestException('Quarterly plan is available for 3-month or longer courses only');
-    }
-  }
-
   private async monthlyFee(course: Course) {
     if (Number(course.monthlyFee) > 0) return Number(course.monthlyFee);
     const setting = await this.dataSource.getRepository(Setting).findOne({ where: { key: 'monthly_fee' } });
@@ -114,8 +107,8 @@ export class PricingService {
   }
 
   private planDiscount(plan: PricingPlanType, grossAmount: number, offers: Offer[]) {
-    if (plan === 'quarterly') return this.percent(grossAmount, this.offerPercentage(offers, 'quarterly-discount', 20));
-    if (plan === 'full_course') return this.percent(grossAmount, this.offerPercentage(offers, 'full-course-discount', 35));
+    if (plan === 'quarterly') return this.percent(grossAmount, this.offerPercentage(offers, 'quarterly-discount'));
+    if (plan === 'full_course') return this.percent(grossAmount, this.offerPercentage(offers, 'full-course-discount'));
     return 0;
   }
 
@@ -123,12 +116,12 @@ export class PricingService {
     return this.dataSource.getRepository(Offer).find({ where: { isActive: true } });
   }
 
-  private offerPercentage(offers: Offer[], slug: string, fallback: number) {
-    return Number(offers.find((offer) => offer.slug === slug)?.discountPercentage ?? fallback);
+  private offerPercentage(offers: Offer[], slug: string) {
+    return Number(offers.find((offer) => offer.slug === slug)?.discountPercentage ?? 0);
   }
 
-  private offerAmount(offers: Offer[], slug: string, fallback: number) {
-    return Number(offers.find((offer) => offer.slug === slug)?.discountAmount ?? fallback);
+  private offerAmount(offers: Offer[], slug: string) {
+    return Number(offers.find((offer) => offer.slug === slug)?.discountAmount ?? 0);
   }
 
   private percent(amount: number, percentage: number) {
@@ -153,7 +146,7 @@ export class PricingService {
       valid: true as const,
       code: referral.code,
       referrerName: referral.student?.user?.name ?? 'A SystemGrid student',
-      discountAmount: this.offerAmount(offers, 'referral-new-student-discount', 500),
+      discountAmount: this.offerAmount(offers, 'referral-new-student-discount'),
     };
   }
 

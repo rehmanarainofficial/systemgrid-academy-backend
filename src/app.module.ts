@@ -11,7 +11,7 @@ import { StudentsModule } from './modules/students/students.module';
 import { CoursesModule } from './modules/courses/courses.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { BatchesModule } from './modules/batches/batches.module';
-import { LessonsModule } from './modules/lessons/lessons.module';
+import { ClassRecordingsModule } from './modules/class-recordings/class-recordings.module';
 import { EnrollmentsModule } from './modules/enrollments/enrollments.module';
 import { AttendanceModule } from './modules/attendance/attendance.module';
 import { AssignmentsModule } from './modules/assignments/assignments.module';
@@ -46,7 +46,7 @@ import { LearningPathsModule } from './modules/learning-paths/learning-paths.mod
     CoursesModule,
     CategoriesModule,
     BatchesModule,
-    LessonsModule,
+    ClassRecordingsModule,
     EnrollmentsModule,
     AttendanceModule,
     AssignmentsModule,

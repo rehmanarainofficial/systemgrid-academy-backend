@@ -13,7 +13,7 @@ export const ACCESS_RESOURCES = [
   { key: 'enrollments', label: 'Enrollments', group: 'Academics' },
   { key: 'courses', label: 'Courses', group: 'Academics' },
   { key: 'learning-paths', label: 'Learning Paths', group: 'Academics' },
-  { key: 'lessons', label: 'Lessons', group: 'Academics' },
+  { key: 'class-recordings', label: 'Class Recordings', group: 'Academics' },
   { key: 'batches', label: 'Batches', group: 'Academics' },
   { key: 'attendance', label: 'Attendance', group: 'Academics' },
   { key: 'assignments', label: 'Assignments', group: 'Academics' },
@@ -57,7 +57,7 @@ const N = AccessLevel.None;
 export const DEFAULT_MATRIX: Matrix = {
   [UserRole.Admin]: {
     dashboard: F, leads: F, admissions: F, students: F, enrollments: F,
-    courses: F, lessons: F, batches: F, attendance: F, assignments: F,
+    courses: F, 'class-recordings': F, batches: F, attendance: F, assignments: F,
     submissions: F, categories: F, instructors: F, certificates: F,
     fees: F, payments: F, invoices: F, notifications: F, blog: F,
     'learning-paths': F,
@@ -65,14 +65,14 @@ export const DEFAULT_MATRIX: Matrix = {
   },
   [UserRole.Staff]: {
     dashboard: R, leads: F, admissions: F, students: F, enrollments: F,
-    courses: N, lessons: N, batches: R, attendance: R, assignments: N,
+    courses: N, 'class-recordings': N, batches: R, attendance: R, assignments: N,
     submissions: N, categories: N, instructors: N, certificates: N,
     fees: R, payments: R, invoices: R, notifications: F, blog: N,
     reports: R, settings: N, users: N, 'audit-logs': N, 'access-control': N,
   },
   [UserRole.Instructor]: {
     dashboard: N, leads: N, admissions: N, students: N, enrollments: N,
-    courses: N, lessons: N, batches: N, attendance: N, assignments: N,
+    courses: N, 'class-recordings': N, batches: N, attendance: N, assignments: N,
     submissions: N, categories: N, instructors: N, certificates: N,
     fees: N, payments: N, invoices: N, notifications: N, blog: N,
     reports: N, settings: N, users: N, 'audit-logs': N, 'access-control': N,

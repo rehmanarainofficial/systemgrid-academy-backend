@@ -34,14 +34,36 @@ export class StudentNotificationsService {
     await this.notifyUser(student.user.id, input);
   }
 
-  async notifyBatchStudents(batchId: string, input: StudentNotificationInput) {
+  async notifyBatchStudents(
+    batchId: string,
+    input: StudentNotificationInput,
+    statuses: Array<'pending' | 'active'> = ['pending', 'active'],
+  ) {
     const enrollments = await this.dataSource.getRepository(Enrollment).find({
-      where: { batch: { id: batchId }, status: In(['pending', 'active']) },
+      where: { batch: { id: batchId }, status: In(statuses) },
       relations: { student: { user: true } },
     });
     for (const enrollment of enrollments) {
       if (!enrollment.student?.user?.id) continue;
       await this.notifyUser(enrollment.student.user.id, input);
+    }
+  }
+
+  async notifyCourseStudents(
+    courseId: string,
+    input: StudentNotificationInput,
+    statuses: Array<'pending' | 'active'> = ['pending', 'active'],
+  ) {
+    const enrollments = await this.dataSource.getRepository(Enrollment).find({
+      where: { course: { id: courseId }, status: In(statuses) },
+      relations: { student: { user: true } },
+    });
+    const notifiedUserIds = new Set<string>();
+    for (const enrollment of enrollments) {
+      const userId = enrollment.student?.user?.id;
+      if (!userId || notifiedUserIds.has(userId)) continue;
+      notifiedUserIds.add(userId);
+      await this.notifyUser(userId, input);
     }
   }
 }

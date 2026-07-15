@@ -41,11 +41,13 @@ import {
 } from '../../database/entities';
 import {
   ApproveOfflinePaymentDto,
+  CreateAdminOfferDto,
   CreatePaymentIntentDto,
   GatewayCallbackDto,
   StartAdmissionDto,
   SubmitAdmissionDto,
   SubmitPaymentProofDto,
+  UpdateAdminOfferDto,
   VerifyAdmissionEmailDto,
 } from './dto/admission.dto';
 import { PricingCalculateDto } from './dto/pricing.dto';
@@ -534,36 +536,80 @@ export class AdmissionsService {
   async listOffers() {
     const rows = await this.dataSource.getRepository(Offer).find({ order: { createdAt: 'ASC' } });
     return {
-      offers: rows.map((offer: any) => ({
-        id: offer.id,
-        name: offer.name,
-        slug: offer.slug,
-        description: offer.description ?? '',
-        type: offer.type,
-        discountPercentage: Number(offer.discountPercentage ?? 0),
-        discountAmount: Number(offer.discountAmount ?? 0),
-        appliesTo: offer.appliesTo ?? '',
-        minCourseDurationMonths: offer.minCourseDurationMonths ?? null,
-        isActive: offer.isActive,
-      })),
+      offers: rows.map((offer) => this.mapOffer(offer)),
     };
   }
 
-  async updateOffer(id: string, body: { isActive?: boolean; discountPercentage?: number; discountAmount?: number }, actorId: string) {
-    const offer = await this.dataSource.getRepository(Offer).findOne({ where: { id } });
+  async createOffer(dto: CreateAdminOfferDto, actorId: string) {
+    const repository = this.dataSource.getRepository(Offer);
+    const slug = this.normalizeOfferSlug(dto.slug || dto.name);
+    if (await repository.findOne({ where: { slug } })) {
+      throw new ConflictException('An offer with this slug already exists');
+    }
+    const offer = await repository.save(repository.create({
+      name: dto.name.trim(),
+      slug,
+      description: dto.description?.trim() || undefined,
+      type: dto.type,
+      discountPercentage: Math.max(0, Number(dto.discountPercentage ?? 0)),
+      discountAmount: Math.max(0, Number(dto.discountAmount ?? 0)),
+      appliesTo: dto.appliesTo?.trim() || undefined,
+      minCourseDurationMonths: dto.minCourseDurationMonths ?? undefined,
+      isActive: dto.isActive ?? true,
+    }));
+    await this.dataSource.getRepository(AuditLog).save({
+      user: { id: actorId } as User,
+      action: 'create_offer',
+      module: 'offers',
+      recordId: offer.id,
+      metadata: this.mapOffer(offer),
+    });
+    return { message: 'Offer created successfully', offer: this.mapOffer(offer) };
+  }
+
+  async updateOffer(id: string, body: UpdateAdminOfferDto, actorId: string) {
+    const repository = this.dataSource.getRepository(Offer);
+    const offer = await repository.findOne({ where: { id } });
     if (!offer) throw new NotFoundException('Offer not found');
+    if (body.slug !== undefined) {
+      const slug = this.normalizeOfferSlug(body.slug);
+      const existing = await repository.findOne({ where: { slug } });
+      if (existing && existing.id !== id) throw new ConflictException('An offer with this slug already exists');
+      offer.slug = slug;
+    }
+    if (body.name !== undefined) offer.name = body.name.trim();
+    if (body.description !== undefined) offer.description = body.description.trim() || undefined;
+    if (body.type !== undefined) offer.type = body.type;
     if (body.isActive !== undefined) offer.isActive = body.isActive;
     if (body.discountPercentage !== undefined) offer.discountPercentage = Math.max(0, Number(body.discountPercentage));
     if (body.discountAmount !== undefined) offer.discountAmount = Math.max(0, Number(body.discountAmount));
-    await this.dataSource.getRepository(Offer).save(offer);
+    if (body.appliesTo !== undefined) offer.appliesTo = body.appliesTo.trim() || undefined;
+    if (body.minCourseDurationMonths !== undefined) offer.minCourseDurationMonths = body.minCourseDurationMonths ?? undefined;
+    await repository.save(offer);
     await this.dataSource.getRepository(AuditLog).save({
       user: { id: actorId } as User,
       action: 'update_offer',
       module: 'offers',
       recordId: id,
-      metadata: body,
+      metadata: { ...body },
     });
-    return { message: 'Offer updated successfully', offer };
+    return { message: 'Offer updated successfully', offer: this.mapOffer(offer) };
+  }
+
+  async deleteOffer(id: string, actorId: string) {
+    const repository = this.dataSource.getRepository(Offer);
+    const offer = await repository.findOne({ where: { id } });
+    if (!offer) throw new NotFoundException('Offer not found');
+    const snapshot = this.mapOffer(offer);
+    await repository.remove(offer);
+    await this.dataSource.getRepository(AuditLog).save({
+      user: { id: actorId } as User,
+      action: 'delete_offer',
+      module: 'offers',
+      recordId: id,
+      metadata: snapshot,
+    });
+    return { message: 'Offer deleted successfully' };
   }
 
   async listReferrals() {
@@ -923,6 +969,27 @@ export class AdmissionsService {
         ? digits.slice(1)
         : digits;
     return local.slice(-10);
+  }
+
+  private normalizeOfferSlug(value: string) {
+    const slug = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    if (!slug) throw new BadRequestException('A valid offer slug is required');
+    return slug;
+  }
+
+  private mapOffer(offer: Offer) {
+    return {
+      id: offer.id,
+      name: offer.name,
+      slug: offer.slug,
+      description: offer.description ?? '',
+      type: offer.type,
+      discountPercentage: Number(offer.discountPercentage ?? 0),
+      discountAmount: Number(offer.discountAmount ?? 0),
+      appliesTo: offer.appliesTo ?? '',
+      minCourseDurationMonths: offer.minCourseDurationMonths ?? null,
+      isActive: offer.isActive,
+    };
   }
 
   private mapPricing(result: Awaited<ReturnType<PricingService['calculate']>>) {

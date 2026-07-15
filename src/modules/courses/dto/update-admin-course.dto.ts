@@ -11,6 +11,7 @@ import {
   Min,
   MinLength,
   ValidateNested,
+  ValidateIf,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { AdminCourseModuleDto, AdminCourseQuarterDto } from './create-admin-course.dto';
@@ -20,7 +21,7 @@ export class UpdateAdminCourseDto {
   @IsOptional() @IsString() @MinLength(2) @MaxLength(180) slug?: string;
   @IsOptional() @IsString() @MinLength(10) @MaxLength(300) shortDescription?: string;
   @IsOptional() @IsString() description?: string;
-  @IsOptional() @IsUrl({ require_tld: false }) thumbnail?: string;
+  @IsOptional() @ValidateIf((o, v) => v !== null && v !== '') @IsUrl({ require_tld: false }) thumbnail?: string | null;
   @IsOptional() @IsArray() @IsString({ each: true }) @MaxLength(40, { each: true }) techStack?: string[];
   @IsOptional() @IsString() categoryId?: string;
   @IsOptional() @IsIn(['beginner', 'intermediate', 'advanced']) level?: 'beginner' | 'intermediate' | 'advanced';

@@ -503,8 +503,8 @@ export class Course {
   @Column({ name: 'description', type: 'text', nullable: true })
   description?: string;
 
-  @Column({ name: 'thumbnail', nullable: true })
-  thumbnail?: string;
+  @Column({ name: 'thumbnail', type: 'varchar', nullable: true })
+  thumbnail?: string | null;
 
   @Column({ name: 'tech_stack', type: 'simple-array', nullable: true })
   techStack?: string[];
@@ -572,8 +572,6 @@ export class Course {
   @OneToMany(() => CourseFAQ, (faq) => faq.course)
   faqs: Relation<CourseFAQ[]>;
 
-  @OneToMany(() => Lesson, (lesson) => lesson.course)
-  lessons: Relation<Lesson[]>;
 
   @OneToMany(() => Batch, (batch) => batch.course)
   batches: Relation<Batch[]>;
@@ -828,8 +826,6 @@ export class CourseModule {
   @Column({ name: 'sort_order', default: 0 })
   sortOrder: number;
 
-  @OneToMany(() => Lesson, (lesson) => lesson.module)
-  lessons: Relation<Lesson[]>;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
@@ -838,22 +834,22 @@ export class CourseModule {
   updatedAt: Date;
 }
 
-@Entity('lessons')
-@Index('idx_lessons_course_id', ['course'])
-@Index('idx_lessons_module_id', ['module'])
-@Index('idx_lessons_is_published', ['isPublished'])
-@Index('idx_lessons_sort_order', ['sortOrder'])
-export class Lesson {
+
+@Entity('class_recordings')
+@Index('idx_class_recordings_course_id', ['course'])
+@Index('idx_class_recordings_batch_id', ['batch'])
+@Index('idx_class_recordings_recorded_date', ['recordedDate'])
+export class ClassRecording {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ManyToOne(() => Course, (course) => course.lessons, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Course, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'course_id' })
   course: Relation<Course>;
 
-  @ManyToOne(() => CourseModule, (module) => module.lessons, { nullable: true, onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'module_id' })
-  module?: Relation<CourseModule>;
+  @ManyToOne(() => Batch, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'batch_id' })
+  batch?: Relation<Batch>;
 
   @Column({ name: 'title' })
   title: string;
@@ -861,29 +857,17 @@ export class Lesson {
   @Column({ name: 'description', type: 'text', nullable: true })
   description?: string;
 
-  @Column({ name: 'video_url', nullable: true })
-  videoUrl?: string;
+  @Column({ name: 'video_url' })
+  videoUrl: string;
 
   @Column({ name: 'resource_url', nullable: true })
   resourceUrl?: string;
 
-  @Column({ name: 'duration_minutes', type: 'integer', nullable: true })
-  durationMinutes?: number;
+  @Column({ name: 'recorded_date', type: 'date' })
+  recordedDate: string;
 
-  @Column({ name: 'is_preview', default: false })
-  isPreview: boolean;
-
-  @Column({ name: 'sort_order', default: 0 })
-  sortOrder: number;
-
-  @Column({ name: 'is_published', default: false })
+  @Column({ name: 'is_published', default: true })
   isPublished: boolean;
-
-  @OneToMany(() => CourseResource, (resource) => resource.lesson)
-  resources: Relation<CourseResource[]>;
-
-  @OneToMany(() => ClassSchedule, (schedule) => schedule.lesson)
-  classSchedules: Relation<ClassSchedule[]>;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
@@ -1074,9 +1058,6 @@ export class ClassSchedule {
   @JoinColumn({ name: 'course_id' })
   course: Relation<Course>;
 
-  @ManyToOne(() => Lesson, (lesson) => lesson.classSchedules, { nullable: true, onDelete: 'SET NULL' })
-  @JoinColumn({ name: 'lesson_id' })
-  lesson?: Relation<Lesson>;
 
   @Column({ name: 'date', type: 'date' })
   date: string;
@@ -1410,7 +1391,6 @@ export class Payment {
 
 @Entity('course_resources')
 @Index('idx_course_resources_course_id', ['course'])
-@Index('idx_course_resources_lesson_id', ['lesson'])
 export class CourseResource {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -1419,9 +1399,6 @@ export class CourseResource {
   @JoinColumn({ name: 'course_id' })
   course: Relation<Course>;
 
-  @ManyToOne(() => Lesson, (lesson) => lesson.resources, { nullable: true, onDelete: 'SET NULL' })
-  @JoinColumn({ name: 'lesson_id' })
-  lesson?: Relation<Lesson>;
 
   @Column({ name: 'title' })
   title: string;

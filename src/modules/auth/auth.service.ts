@@ -182,32 +182,52 @@ export class AuthService {
     rememberMe = true,
   ) {
     const secure = this.configService.get('NODE_ENV') === 'production';
+    const domain = this.cookieDomain();
     const persistentCookie = rememberMe ? { maxAge: 1000 * 60 * 60 * 24 * 30 } : {};
     const accessCookie = rememberMe ? { maxAge: 1000 * 60 * 15 } : {};
     response.cookie('sg_refresh_token', tokens.refreshToken, {
       httpOnly: true,
       sameSite: 'lax',
       secure,
+      ...(domain ? { domain } : {}),
       ...persistentCookie,
     });
     response.cookie('sg_access_token', tokens.accessToken, {
       httpOnly: true,
       sameSite: 'lax',
       secure,
+      ...(domain ? { domain } : {}),
       ...accessCookie,
     });
     response.cookie('sg_user_role', role, {
       httpOnly: false,
       sameSite: 'lax',
       secure,
+      ...(domain ? { domain } : {}),
       ...persistentCookie,
     });
   }
 
   private clearAuthCookies(response: Response) {
-    response.clearCookie('sg_refresh_token');
-    response.clearCookie('sg_access_token');
-    response.clearCookie('sg_user_role');
+    const secure = this.configService.get('NODE_ENV') === 'production';
+    const baseOptions = {
+      path: '/',
+      sameSite: 'lax' as const,
+      secure,
+    };
+    const domain = this.cookieDomain();
+    for (const name of ['sg_refresh_token', 'sg_access_token', 'sg_user_role']) {
+      response.clearCookie(name, baseOptions);
+      if (domain) {
+        response.clearCookie(name, { ...baseOptions, domain });
+      }
+    }
+  }
+
+  private cookieDomain() {
+    const domain = this.configService.get<string>('COOKIE_DOMAIN')?.trim();
+    if (!domain || domain === 'localhost') return undefined;
+    return domain;
   }
 
   private getResetSecret() {

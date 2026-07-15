@@ -15,12 +15,12 @@ import {
   CourseModule,
   Enrollment,
   Instructor,
-  Lesson,
+  ClassRecording,
   User,
 } from '../../database/entities';
 import { CreateInstructorAssignmentDto } from './dto/create-instructor-assignment.dto';
-import { CreateInstructorLessonDto } from './dto/create-instructor-lesson.dto';
-import { UpdateInstructorLessonDto } from './dto/update-instructor-lesson.dto';
+import { CreateInstructorClassRecordingDto } from './dto/create-instructor-class-recording.dto';
+import { UpdateInstructorClassRecordingDto } from './dto/update-instructor-class-recording.dto';
 import { GradeInstructorSubmissionDto } from './dto/grade-instructor-submission.dto';
 import { MarkInstructorAttendanceDto } from './dto/mark-instructor-attendance.dto';
 import { StudentNotificationsService } from '../notifications/student-notifications.service';
@@ -159,14 +159,14 @@ export class InstructorPortalService {
     if (!batchIds.length) return [];
     const schedules = await this.dataSource.getRepository(ClassSchedule).find({
       where: { batch: { id: In(batchIds) } },
-      relations: { batch: true, lesson: true, course: true },
+      relations: { batch: true, course: true },
       order: { date: 'ASC' },
     });
     return schedules.map((s) => ({
       id: s.id,
       batchId: s.batch.id,
       batchTitle: s.batch.title,
-      lessonTitle: s.lesson?.title ?? '',
+      lessonTitle: 'Interactive Live Class',
       date: s.date,
       startTime: s.startTime,
       endTime: s.endTime,
@@ -362,28 +362,52 @@ export class InstructorPortalService {
     return { message: 'Submission graded' };
   }
 
-  async getLessons(userId: string, courseId?: string) {
+  async getClassRecordings(
+    userId: string,
+    courseId?: string,
+    batchId?: string,
+    dateFrom?: string,
+    dateTo?: string,
+  ) {
     const courseIds = await this.ownCourseIds(userId);
+    const batchIds = await this.ownBatchIds(userId);
     if (!courseIds.length) return [];
-    const filtered =
-      courseId && courseIds.includes(courseId) ? [courseId] : courseIds;
-    const lessons = await this.dataSource.getRepository(Lesson).find({
-      where: { course: { id: In(filtered) } },
-      relations: { course: true, module: true },
-      order: { sortOrder: 'ASC' },
-    });
-    return lessons.map((l) => ({
-      id: l.id,
-      title: l.title,
-      description: l.description ?? '',
-      courseId: l.course.id,
-      courseTitle: l.course.title,
-      moduleId: l.module?.id ?? '',
-      moduleTitle: l.module?.title ?? '',
-      videoUrl: l.videoUrl ?? '',
-      resourceUrl: l.resourceUrl ?? '',
-      durationMinutes: l.durationMinutes ?? 0,
-      isPublished: l.isPublished,
+
+    const filteredCourses = courseId && courseIds.includes(courseId) ? [courseId] : courseIds;
+    const builder = this.dataSource
+      .getRepository(ClassRecording)
+      .createQueryBuilder('recording')
+      .leftJoinAndSelect('recording.course', 'course')
+      .leftJoinAndSelect('recording.batch', 'batch')
+      .where('course.id IN (:...courseIds)', { courseIds: filteredCourses })
+      .orderBy('recording.recordedDate', 'DESC')
+      .addOrderBy('recording.createdAt', 'DESC');
+
+    if (batchId && batchIds.includes(batchId)) {
+      builder.andWhere('batch.id = :batchId', { batchId });
+    }
+    if (dateFrom?.trim()) {
+      builder.andWhere('recording.recordedDate >= :dateFrom', { dateFrom: dateFrom.trim() });
+    }
+    if (dateTo?.trim()) {
+      builder.andWhere('recording.recordedDate <= :dateTo', { dateTo: dateTo.trim() });
+    }
+
+    const recordings = await builder.getMany();
+
+    return recordings.map((r) => ({
+      id: r.id,
+      title: r.title,
+      description: r.description ?? '',
+      courseId: r.course.id,
+      courseTitle: r.course.title,
+      batchId: r.batch?.id ?? '',
+      batchTitle: r.batch?.title ?? '',
+      batchCode: r.batch?.code ?? '',
+      videoUrl: r.videoUrl,
+      resourceUrl: r.resourceUrl ?? '',
+      recordedDate: r.recordedDate,
+      isPublished: r.isPublished,
     }));
   }
 
@@ -403,54 +427,83 @@ export class InstructorPortalService {
     }));
   }
 
-  async createLesson(userId: string, dto: CreateInstructorLessonDto) {
+  async createClassRecording(userId: string, dto: CreateInstructorClassRecordingDto) {
     const courseIds = await this.ownCourseIds(userId);
     if (!courseIds.includes(dto.courseId)) {
       throw new ForbiddenException('You do not teach this course');
     }
-    const lesson = await this.dataSource.getRepository(Lesson).save(
-      this.dataSource.getRepository(Lesson).create({
+    if (dto.batchId) {
+      const batchIds = await this.ownBatchIds(userId);
+      if (!batchIds.includes(dto.batchId)) {
+        throw new ForbiddenException('You do not teach this batch');
+      }
+    }
+    const recording = await this.dataSource.getRepository(ClassRecording).save(
+      this.dataSource.getRepository(ClassRecording).create({
         course: { id: dto.courseId } as never,
-        module: dto.moduleId ? ({ id: dto.moduleId } as never) : undefined,
+        batch: dto.batchId ? ({ id: dto.batchId } as never) : undefined,
         title: dto.title.trim(),
         description: dto.description?.trim(),
-        videoUrl: dto.videoUrl,
-        resourceUrl: dto.resourceUrl,
-        durationMinutes: dto.durationMinutes,
+        videoUrl: dto.videoUrl.trim(),
+        resourceUrl: dto.resourceUrl?.trim(),
+        recordedDate: dto.recordedDate,
         isPublished: dto.isPublished ?? true,
       }),
     );
-    return { id: lesson.id, message: 'Lesson uploaded' };
+    if (recording.isPublished) {
+      await this.notifyStudentsAboutRecording(recording.title, dto.courseId, dto.batchId);
+    }
+    return { id: recording.id, message: 'Class recording uploaded' };
   }
 
-  async updateLesson(userId: string, lessonId: string, dto: UpdateInstructorLessonDto) {
+  async updateClassRecording(userId: string, recordingId: string, dto: UpdateInstructorClassRecordingDto) {
     const courseIds = await this.ownCourseIds(userId);
-    const repo = this.dataSource.getRepository(Lesson);
-    const lesson = await repo.findOne({
-      where: { id: lessonId, course: { id: In(courseIds) } },
-      relations: { course: true, module: true },
+    const repo = this.dataSource.getRepository(ClassRecording);
+    const recording = await repo.findOne({
+      where: { id: recordingId, course: { id: In(courseIds) } },
+      relations: { course: true, batch: true },
     });
-    if (!lesson) throw new NotFoundException('Lesson not found');
-    if (dto.title !== undefined) lesson.title = dto.title.trim();
-    if (dto.description !== undefined) lesson.description = dto.description.trim() || undefined;
-    if (dto.videoUrl !== undefined) lesson.videoUrl = dto.videoUrl || undefined;
-    if (dto.resourceUrl !== undefined) lesson.resourceUrl = dto.resourceUrl || undefined;
-    if (dto.durationMinutes !== undefined) lesson.durationMinutes = dto.durationMinutes;
-    if (dto.moduleId !== undefined) lesson.module = dto.moduleId ? ({ id: dto.moduleId } as never) : undefined;
-    if (dto.isPublished !== undefined) lesson.isPublished = dto.isPublished;
-    await repo.save(lesson);
-    return { id: lesson.id, message: 'Lesson updated' };
+    if (!recording) throw new NotFoundException('Class recording not found');
+
+    const wasPublished = recording.isPublished;
+    if (dto.title !== undefined) recording.title = dto.title.trim();
+    if (dto.description !== undefined) recording.description = dto.description.trim() || undefined;
+    if (dto.videoUrl !== undefined) recording.videoUrl = dto.videoUrl.trim();
+    if (dto.resourceUrl !== undefined) recording.resourceUrl = dto.resourceUrl.trim() || undefined;
+    if (dto.recordedDate !== undefined) recording.recordedDate = dto.recordedDate;
+    if (dto.isPublished !== undefined) recording.isPublished = dto.isPublished;
+    if (dto.batchId !== undefined) {
+      if (dto.batchId) {
+        const batchIds = await this.ownBatchIds(userId);
+        if (!batchIds.includes(dto.batchId)) {
+          throw new ForbiddenException('You do not teach this batch');
+        }
+        recording.batch = { id: dto.batchId } as never;
+      } else {
+        recording.batch = null as any;
+      }
+    }
+
+    await repo.save(recording);
+    if (!wasPublished && recording.isPublished) {
+      await this.notifyStudentsAboutRecording(
+        recording.title,
+        recording.course.id,
+        recording.batch?.id,
+      );
+    }
+    return { id: recording.id, message: 'Class recording updated' };
   }
 
-  async deleteLesson(userId: string, lessonId: string) {
+  async deleteClassRecording(userId: string, recordingId: string) {
     const courseIds = await this.ownCourseIds(userId);
-    const repo = this.dataSource.getRepository(Lesson);
-    const lesson = await repo.findOne({
-      where: { id: lessonId, course: { id: In(courseIds) } },
+    const repo = this.dataSource.getRepository(ClassRecording);
+    const recording = await repo.findOne({
+      where: { id: recordingId, course: { id: In(courseIds) } },
     });
-    if (!lesson) throw new NotFoundException('Lesson not found');
-    await repo.remove(lesson);
-    return { message: 'Lesson deleted' };
+    if (!recording) throw new NotFoundException('Class recording not found');
+    await repo.remove(recording);
+    return { message: 'Class recording deleted' };
   }
 
   private async ownCourseIds(userId: string): Promise<string[]> {
@@ -460,6 +513,20 @@ export class InstructorPortalService {
       relations: { course: true },
     });
     return [...new Set(batches.map((b) => b.course?.id).filter(Boolean))] as string[];
+  }
+
+  private async notifyStudentsAboutRecording(title: string, courseId: string, batchId?: string) {
+    const input = {
+      title: 'New class recording uploaded',
+      message: `${title} is now available in your class recordings.`,
+      type: 'class' as const,
+      actionUrl: '/student/class-recordings',
+    };
+    if (batchId) {
+      await this.studentNotifications.notifyBatchStudents(batchId, input, ['active']);
+      return;
+    }
+    await this.studentNotifications.notifyCourseStudents(courseId, input, ['active']);
   }
 
   private mapBatch(batch: Batch) {

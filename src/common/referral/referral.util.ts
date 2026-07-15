@@ -53,8 +53,9 @@ export async function resolveReferrerCreditAmount(
   fallback: number = DEFAULT_REFERRER_CREDIT,
 ): Promise<number> {
   const offer = await manager.findOne(Offer, {
-    where: { slug: 'referral-reward', isActive: true },
+    where: { slug: 'referral-reward' },
   });
+  if (offer && !offer.isActive) return 0;
   const amount = Number(offer?.discountAmount ?? fallback);
   return Number.isFinite(amount) && amount >= 0 ? amount : fallback;
 }

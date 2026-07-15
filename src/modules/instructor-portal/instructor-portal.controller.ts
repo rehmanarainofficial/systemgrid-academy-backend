@@ -18,8 +18,8 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import type { User } from '../../database/entities';
 import { CreateInstructorAssignmentDto } from './dto/create-instructor-assignment.dto';
-import { CreateInstructorLessonDto } from './dto/create-instructor-lesson.dto';
-import { UpdateInstructorLessonDto } from './dto/update-instructor-lesson.dto';
+import { CreateInstructorClassRecordingDto } from './dto/create-instructor-class-recording.dto';
+import { UpdateInstructorClassRecordingDto } from './dto/update-instructor-class-recording.dto';
 import { GradeInstructorSubmissionDto } from './dto/grade-instructor-submission.dto';
 import { MarkInstructorAttendanceDto } from './dto/mark-instructor-attendance.dto';
 import { InstructorPortalService } from './instructor-portal.service';
@@ -100,12 +100,15 @@ export class InstructorPortalController {
     return this.service.gradeSubmission(req.user.id, id, dto);
   }
 
-  @Get('lessons')
-  lessons(
+  @Get('class-recordings')
+  classRecordings(
     @Req() req: AuthenticatedRequest,
     @Query('courseId') courseId?: string,
+    @Query('batchId') batchId?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
   ) {
-    return this.service.getLessons(req.user.id, courseId);
+    return this.service.getClassRecordings(req.user.id, courseId, batchId, dateFrom, dateTo);
   }
 
   @Get('courses/:courseId/modules')
@@ -116,25 +119,25 @@ export class InstructorPortalController {
     return this.service.getCourseModules(req.user.id, courseId);
   }
 
-  @Post('lessons')
-  createLesson(
+  @Post('class-recordings')
+  createClassRecording(
     @Req() req: AuthenticatedRequest,
-    @Body() dto: CreateInstructorLessonDto,
+    @Body() dto: CreateInstructorClassRecordingDto,
   ) {
-    return this.service.createLesson(req.user.id, dto);
+    return this.service.createClassRecording(req.user.id, dto);
   }
 
-  @Patch('lessons/:id')
-  updateLesson(
+  @Patch('class-recordings/:id')
+  updateClassRecording(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
-    @Body() dto: UpdateInstructorLessonDto,
+    @Body() dto: UpdateInstructorClassRecordingDto,
   ) {
-    return this.service.updateLesson(req.user.id, id, dto);
+    return this.service.updateClassRecording(req.user.id, id, dto);
   }
 
-  @Delete('lessons/:id')
-  deleteLesson(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
-    return this.service.deleteLesson(req.user.id, id);
+  @Delete('class-recordings/:id')
+  deleteClassRecording(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
+    return this.service.deleteClassRecording(req.user.id, id);
   }
 }

@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
-import { DataSource, MoreThanOrEqual, Repository } from 'typeorm';
+import { Brackets, DataSource, MoreThanOrEqual, Repository } from 'typeorm';
 import {
   Attendance,
   Assignment,
@@ -20,7 +20,7 @@ import {
   Enrollment,
   FeePlan,
   Invoice,
-  Lesson,
+  ClassRecording,
   Notification,
   Payment,
   ReferralCode,
@@ -65,8 +65,8 @@ export class StudentPortalService {
     private readonly enrollmentsRepository: Repository<Enrollment>,
     @InjectRepository(ClassSchedule)
     private readonly schedulesRepository: Repository<ClassSchedule>,
-    @InjectRepository(Lesson)
-    private readonly lessonsRepository: Repository<Lesson>,
+    @InjectRepository(ClassRecording)
+    private readonly classRecordingsRepository: Repository<ClassRecording>,
     @InjectRepository(CourseModule)
     private readonly modulesRepository: Repository<CourseModule>,
     @InjectRepository(Attendance)
@@ -107,7 +107,7 @@ export class StudentPortalService {
     const enrollments = await this.getStudentEnrollments(student.id);
     const activeEnrollments = enrollments.filter((item) => item.status === 'active');
     const completedEnrollments = enrollments.filter((item) => item.status === 'completed');
-    const currentEnrollment = activeEnrollments[0] ?? enrollments[0];
+    const currentEnrollment = activeEnrollments[0] ?? completedEnrollments[0] ?? null;
 
     const attendanceRecords = await this.attendanceRepository.find({
       where: { student: { id: student.id } },
@@ -117,8 +117,8 @@ export class StudentPortalService {
     const currentCourse = currentEnrollment
       ? await this.buildCurrentCourse(currentEnrollment)
       : null;
-    const recentLessons = currentEnrollment
-      ? await this.buildRecentLessons(currentEnrollment)
+    const recentRecordings = currentEnrollment
+      ? await this.buildRecentRecordings(currentEnrollment)
       : [];
 
     return {
@@ -144,7 +144,8 @@ export class StudentPortalService {
       upcomingClass: currentEnrollment
         ? await this.buildUpcomingClass(currentEnrollment)
         : null,
-      recentLessons,
+      recentLessons: recentRecordings,
+      recentRecordings,
       feeStatus,
       feeReminder: await this.buildFeeReminder(student, enrollments),
       attendanceSummary: {
@@ -159,7 +160,8 @@ export class StudentPortalService {
   async getSchedule(userId: string) {
     const student = await this.getStudentProfile(userId);
     const enrollments = await this.getStudentEnrollments(student.id);
-    const batchIds = enrollments
+    const learningEnrollments = this.learningEnrollments(enrollments);
+    const batchIds = learningEnrollments
       .map((enrollment) => enrollment.batch?.id)
       .filter((id): id is string => Boolean(id));
 
@@ -171,8 +173,6 @@ export class StudentPortalService {
       .createQueryBuilder('schedule')
       .leftJoinAndSelect('schedule.batch', 'batch')
       .leftJoinAndSelect('schedule.course', 'course')
-      .leftJoinAndSelect('schedule.lesson', 'lesson')
-      .leftJoinAndSelect('lesson.module', 'module')
       .where('batch.id IN (:...batchIds)', { batchIds })
       .orderBy('schedule.date', 'ASC')
       .addOrderBy('schedule.startTime', 'ASC')
@@ -185,7 +185,7 @@ export class StudentPortalService {
 
     return {
       upcomingClasses,
-      weeklySchedule: this.buildWeeklySchedule(enrollments),
+      weeklySchedule: this.buildWeeklySchedule(learningEnrollments),
       serverTime: getServerTimePayload(),
     };
   }
@@ -895,12 +895,8 @@ export class StudentPortalService {
 
     const courses = await Promise.all(
       enrollments.map(async (enrollment) => {
-        const lessons = await this.getPublishedLessons(enrollment.course.id);
-        const completedLessons = this.completedLessonCount(
-          lessons.length,
-          Number(enrollment.progressPercentage),
-        );
-        const nextLesson = lessons[completedLessons]?.title ?? lessons.at(-1)?.title ?? '';
+        const recordingsCount = await this.getPublishedRecordingCount(enrollment);
+        const progressPercentage = Number(enrollment.progressPercentage);
         const nextScheduledClass = enrollment.batch?.id
           ? await this.getNextScheduledClass(enrollment.batch.id)
           : null;
@@ -921,10 +917,10 @@ export class StudentPortalService {
           batchTitle: enrollment.batch?.title ?? 'Self-paced',
           batchCode: enrollment.batch?.code ?? 'SG-SELF',
           status: enrollment.status,
-          progressPercentage: Number(enrollment.progressPercentage),
-          totalLessons: lessons.length,
-          completedLessons,
-          nextLesson,
+          progressPercentage,
+          totalLessons: recordingsCount,
+          completedLessons: this.completedLessonCount(recordingsCount, progressPercentage),
+          nextLesson: '',
           nextScheduledClass,
         };
       }),
@@ -948,15 +944,14 @@ export class StudentPortalService {
       where: { course: { id: enrollment.course.id } },
       order: { sortOrder: 'ASC' },
     });
-    const lessons = await this.getPublishedLessons(enrollment.course.id);
-    const completedLessons = this.completedLessonCount(
-      lessons.length,
-      Number(enrollment.progressPercentage),
-    );
+
     const resources = await this.resourcesRepository.find({
       where: { course: { id: enrollment.course.id } },
       order: { createdAt: 'DESC' },
     });
+    const recordingsCount = await this.getPublishedRecordingCount(enrollment);
+    const progressPercentage = Number(enrollment.progressPercentage);
+    const completedLessons = this.completedLessonCount(recordingsCount, progressPercentage);
 
     return {
       course: {
@@ -971,16 +966,11 @@ export class StudentPortalService {
         ),
         mode: this.formatMode(enrollment.course.mode),
         status: enrollment.status,
-        progressPercentage: Number(enrollment.progressPercentage),
+        progressPercentage,
         completedLessons,
-        remainingLessons: Math.max(lessons.length - completedLessons, 0),
-        totalLessons: lessons.length,
-        currentModule:
-          modules.find((module) =>
-            lessons
-              .slice(completedLessons, completedLessons + 1)
-              .some((lesson) => lesson.module?.id === module.id),
-          )?.title ?? modules.at(-1)?.title ?? '',
+        remainingLessons: Math.max(recordingsCount - completedLessons, 0),
+        totalLessons: recordingsCount,
+        currentModule: modules.at(-1)?.title ?? '',
       },
       batch: enrollment.batch
         ? {
@@ -993,36 +983,13 @@ export class StudentPortalService {
           }
         : null,
       modules: modules.map((module) => {
-        const moduleLessons = lessons.filter(
-          (lesson) => lesson.module?.id === module.id,
-        );
-        const moduleCompleted = moduleLessons.filter((lesson) => {
-          const lessonIndex = lessons.findIndex((item) => item.id === lesson.id);
-          return lessonIndex >= 0 && lessonIndex < completedLessons;
-        }).length;
-
         return {
           id: module.id,
           title: module.title,
           description: module.description ?? '',
           sortOrder: module.sortOrder,
-          progressPercentage: moduleLessons.length
-            ? Math.round((moduleCompleted / moduleLessons.length) * 100)
-            : 0,
-          lessons: moduleLessons.map((lesson) => {
-            const lessonIndex = lessons.findIndex((item) => item.id === lesson.id);
-            const completed = lessonIndex >= 0 && lessonIndex < completedLessons;
-            return {
-              id: lesson.id,
-              title: lesson.title,
-              description: lesson.description ?? '',
-              durationMinutes: lesson.durationMinutes ?? 0,
-              videoUrl: lesson.videoUrl ?? '',
-              resourceUrl: lesson.resourceUrl ?? '',
-              completed,
-              locked: lessonIndex > completedLessons,
-            };
-          }),
+          progressPercentage: 0,
+          lessons: [],
         };
       }),
       resources: resources.map((resource) => ({
@@ -1066,6 +1033,10 @@ export class StudentPortalService {
       relations: { batch: true, course: true, student: true },
       order: { enrolledAt: 'DESC' },
     });
+  }
+
+  private learningEnrollments(enrollments: Enrollment[]) {
+    return enrollments.filter((enrollment) => enrollment.status === 'active');
   }
 
   private async getStudentAssignmentsContext(userId: string) {
@@ -1120,8 +1091,8 @@ export class StudentPortalService {
       courseTitle: schedule.course.title,
       batchTitle: schedule.batch.title,
       batchCode: schedule.batch.code,
-      moduleTitle: schedule.lesson?.module?.title ?? 'Course module',
-      lessonTitle: schedule.lesson?.title ?? 'Class session',
+      moduleTitle: 'Live Session',
+      lessonTitle: 'Interactive Live Class',
       date: schedule.date,
       startTime: schedule.startTime,
       endTime: schedule.endTime,
@@ -1272,12 +1243,16 @@ export class StudentPortalService {
     );
   }
 
-  private getPublishedLessons(courseId: string) {
-    return this.lessonsRepository.find({
-      where: { course: { id: courseId }, isPublished: true },
-      relations: { module: true },
-      order: { sortOrder: 'ASC' },
-    });
+  private async buildUpcomingClass(enrollment: Enrollment) {
+    return {
+      courseTitle: enrollment.course.title,
+      moduleTitle: 'Live Session',
+      lessonTitle: 'Interactive Live Class',
+      date: this.nextClassDate(enrollment.batch?.classDays ?? []),
+      startTime: enrollment.batch?.startTime ?? '',
+      endTime: enrollment.batch?.endTime ?? '',
+      mode: this.formatMode(enrollment.batch?.mode ?? enrollment.course.mode),
+    };
   }
 
   private async buildCurrentCourse(enrollment: Enrollment) {
@@ -1291,41 +1266,40 @@ export class StudentPortalService {
     };
   }
 
-  private async buildUpcomingClass(enrollment: Enrollment) {
-    const lessons = await this.getPublishedLessons(enrollment.course.id);
-    const completedLessons = this.completedLessonCount(
-      lessons.length,
-      Number(enrollment.progressPercentage),
-    );
-    const lesson = lessons[completedLessons] ?? lessons.at(-1);
+  private async buildRecentRecordings(enrollment: Enrollment) {
+    const batchId = enrollment.batch?.id;
+    const recordings = await this.classRecordingsRepository
+      .createQueryBuilder('recording')
+      .leftJoinAndSelect('recording.course', 'course')
+      .leftJoinAndSelect('recording.batch', 'batch')
+      .where('recording.isPublished = true')
+      .andWhere(
+        new Brackets((where) => {
+          if (batchId) {
+            where.where('batch.id = :batchId', { batchId });
+            where.orWhere('(batch.id IS NULL AND course.id = :courseId)', {
+              courseId: enrollment.course.id,
+            });
+          } else {
+            where.where('batch.id IS NULL AND course.id = :courseId', {
+              courseId: enrollment.course.id,
+            });
+          }
+        }),
+      )
+      .orderBy('recording.recordedDate', 'DESC')
+      .addOrderBy('recording.createdAt', 'DESC')
+      .take(4)
+      .getMany();
 
-    return {
-      courseTitle: enrollment.course.title,
-      moduleTitle: lesson?.module?.title ?? 'Course module',
-      lessonTitle: lesson?.title ?? 'Next lesson',
-      date: this.nextClassDate(enrollment.batch?.classDays ?? []),
-      startTime: enrollment.batch?.startTime ?? '',
-      endTime: enrollment.batch?.endTime ?? '',
-      mode: this.formatMode(enrollment.batch?.mode ?? enrollment.course.mode),
-    };
-  }
-
-  private async buildRecentLessons(enrollment: Enrollment) {
-    const lessons = await this.getPublishedLessons(enrollment.course.id);
-    const completedLessons = this.completedLessonCount(
-      lessons.length,
-      Number(enrollment.progressPercentage),
-    );
-
-    return lessons.slice(0, Math.max(completedLessons, 4)).slice(-4).map((lesson, index, sliced) => ({
-      id: lesson.id,
-      title: lesson.title,
-      courseId: enrollment.course.id,
-      courseTitle: enrollment.course.title,
-      durationMinutes: lesson.durationMinutes ?? 0,
-      videoUrl: lesson.videoUrl ?? '',
-      resourceUrl: lesson.resourceUrl ?? '',
-      completed: index < sliced.length - 1 || completedLessons >= lessons.length,
+    return recordings.map((rec) => ({
+      id: rec.id,
+      title: rec.title,
+      courseId: rec.course.id,
+      courseTitle: rec.course.title,
+      videoUrl: rec.videoUrl,
+      resourceUrl: rec.resourceUrl ?? '',
+      recordedDate: rec.recordedDate,
     }));
   }
 
@@ -1405,7 +1379,32 @@ export class StudentPortalService {
   }
 
   private completedLessonCount(totalLessons: number, progress: number) {
-    return Math.min(Math.round((totalLessons * progress) / 100), totalLessons);
+    if (!totalLessons || progress <= 0) return 0;
+    return Math.min(Math.ceil((totalLessons * progress) / 100), totalLessons);
+  }
+
+  private getPublishedRecordingCount(enrollment: Enrollment) {
+    const batchId = enrollment.batch?.id;
+    return this.classRecordingsRepository
+      .createQueryBuilder('recording')
+      .leftJoin('recording.course', 'course')
+      .leftJoin('recording.batch', 'batch')
+      .where('recording.isPublished = true')
+      .andWhere(
+        new Brackets((where) => {
+          if (batchId) {
+            where.where('batch.id = :batchId', { batchId });
+            where.orWhere('(batch.id IS NULL AND course.id = :courseId)', {
+              courseId: enrollment.course.id,
+            });
+          } else {
+            where.where('batch.id IS NULL AND course.id = :courseId', {
+              courseId: enrollment.course.id,
+            });
+          }
+        }),
+      )
+      .getCount();
   }
 
   private async getNextScheduledClass(batchId: string) {
@@ -1416,12 +1415,11 @@ export class StudentPortalService {
         status: 'upcoming' as never,
         date: MoreThanOrEqual(today),
       },
-      relations: { lesson: true },
       order: { date: 'ASC', startTime: 'ASC' },
     });
     if (!schedule) return null;
     return {
-      title: schedule.lesson?.title ?? 'Live class',
+      title: 'Live class',
       date: schedule.date,
     };
   }
@@ -1669,6 +1667,66 @@ export class StudentPortalService {
     }
 
     return null;
+  }
+
+  async getClassRecordings(userId: string, search?: string, dateFrom?: string, dateTo?: string) {
+    const student = await this.getStudentProfile(userId);
+    const enrollments = this.learningEnrollments(await this.getStudentEnrollments(student.id));
+    const courseIds = enrollments.map((e) => e.course.id);
+    const batchIds = enrollments
+      .map((e) => e.batch?.id)
+      .filter((id): id is string => Boolean(id));
+
+    if (!courseIds.length) {
+      return [];
+    }
+
+    const builder = this.classRecordingsRepository
+      .createQueryBuilder('recording')
+      .leftJoinAndSelect('recording.course', 'course')
+      .leftJoinAndSelect('recording.batch', 'batch')
+      .where(
+        new Brackets((where) => {
+          if (batchIds.length) {
+            where.where('batch.id IN (:...batchIds)', { batchIds });
+            where.orWhere('(batch.id IS NULL AND course.id IN (:...courseIds))', { courseIds });
+          } else {
+            where.where('batch.id IS NULL AND course.id IN (:...courseIds)', { courseIds });
+          }
+        }),
+      )
+      .andWhere('recording.isPublished = true')
+      .orderBy('recording.recordedDate', 'DESC')
+      .addOrderBy('recording.createdAt', 'DESC');
+
+    if (search?.trim()) {
+      const searchPattern = `%${search.trim()}%`;
+      builder.andWhere(
+        '(recording.title ILIKE :searchPattern OR recording.description ILIKE :searchPattern)',
+        { searchPattern },
+      );
+    }
+    if (dateFrom?.trim()) {
+      builder.andWhere('recording.recordedDate >= :dateFrom', { dateFrom: dateFrom.trim() });
+    }
+    if (dateTo?.trim()) {
+      builder.andWhere('recording.recordedDate <= :dateTo', { dateTo: dateTo.trim() });
+    }
+
+    const recordings = await builder.getMany();
+    return recordings.map((rec) => ({
+      id: rec.id,
+      title: rec.title,
+      description: rec.description ?? '',
+      courseId: rec.course.id,
+      courseTitle: rec.course.title,
+      batchId: rec.batch?.id ?? '',
+      batchTitle: rec.batch?.title ?? '',
+      batchCode: rec.batch?.code ?? '',
+      videoUrl: rec.videoUrl,
+      resourceUrl: rec.resourceUrl ?? '',
+      recordedDate: rec.recordedDate,
+    }));
   }
 
   private formatMode(mode: string) {

@@ -22,13 +22,14 @@ import {
   CourseTool,
   CourseTopic,
   Enrollment,
-  Lesson,
+  ClassRecording,
   Offer,
   User,
 } from '../../database/entities';
 import { AdminCoursesQueryDto } from './dto/admin-courses-query.dto';
 import { CreateAdminCourseDto, AdminCourseQuarterDto } from './dto/create-admin-course.dto';
 import { UpdateAdminCourseDto } from './dto/update-admin-course.dto';
+import { UploadsService } from '../uploads/uploads.service';
 
 @Injectable()
 export class CoursesService {
@@ -36,6 +37,7 @@ export class CoursesService {
     @InjectRepository(Course)
     private readonly coursesRepository: Repository<Course>,
     private readonly dataSource: DataSource,
+    private readonly uploadsService: UploadsService,
   ) {}
 
   async findPublicCourses(query: PaginationDto) {
@@ -211,8 +213,8 @@ export class CoursesService {
   async findAdminCourse(id: string) {
     const course = await this.coursesRepository.findOne({
       where: { id },
-      relations: { category: true, modules: true, lessons: true },
-      order: { modules: { sortOrder: 'ASC' }, lessons: { sortOrder: 'ASC' } },
+      relations: { category: true, modules: true },
+      order: { modules: { sortOrder: 'ASC' } },
     });
     if (!course) throw new NotFoundException('Course not found');
     const [mapped] = await this.attachCourseMetrics([course]);
@@ -273,11 +275,19 @@ export class CoursesService {
     if (dto.categoryId !== undefined) course.category = await this.resolveCategory(dto.categoryId);
     const pendingDisplayOrder = dto.displayOrder;
     const fields: Array<keyof UpdateAdminCourseDto> = [
-      'title', 'shortDescription', 'description', 'thumbnail', 'level', 'duration',
+      'title', 'shortDescription', 'description', 'level', 'duration',
       'durationUnit', 'mode', 'language', 'fee', 'discountFee', 'isFeatured', 'isPublished',
     ];
     for (const field of fields) {
       if (dto[field] !== undefined) (course as unknown as Record<string, unknown>)[field] = dto[field];
+    }
+    if (dto.thumbnail !== undefined) {
+      const oldThumbnail = course.thumbnail;
+      const newThumbnail = dto.thumbnail ? dto.thumbnail.trim() || null : null;
+      if (oldThumbnail && oldThumbnail !== newThumbnail) {
+        await this.uploadsService.deleteByUrl(oldThumbnail);
+      }
+      course.thumbnail = newThumbnail;
     }
     if (dto.duration !== undefined || dto.durationUnit !== undefined) {
       course.durationMonths = this.durationMonths(course);
@@ -311,13 +321,13 @@ export class CoursesService {
     if (!course) throw new NotFoundException('Course not found');
     const enrollmentCount = await this.dataSource.getRepository(Enrollment).count({ where: { course: { id } } });
     if (enrollmentCount) throw new ConflictException('Courses with enrollments cannot be deleted. Unpublish this course instead.');
-    const [batchCount, moduleCount, lessonCount] = await Promise.all([
+    const [batchCount, moduleCount, recordingCount] = await Promise.all([
       this.dataSource.getRepository(Batch).count({ where: { course: { id } } }),
       this.dataSource.getRepository(CourseModule).count({ where: { course: { id } } }),
-      this.dataSource.getRepository(Lesson).count({ where: { course: { id } } }),
+      this.dataSource.getRepository(ClassRecording).count({ where: { course: { id } } }),
     ]);
-    if (batchCount || moduleCount || lessonCount) {
-      throw new ConflictException('Remove linked batches, modules, and lessons before deleting this course.');
+    if (batchCount || moduleCount || recordingCount) {
+      throw new ConflictException('Remove linked batches, modules, and class recordings before deleting this course.');
     }
     await this.coursesRepository.remove(course);
     await this.normalizeAllDisplayOrders();
@@ -366,12 +376,12 @@ export class CoursesService {
   private async attachCourseMetrics(courses: Course[]) {
     if (!courses.length) return [];
     const ids = courses.map(({ id }) => id);
-    const [enrollments, batches, modules, outlineModules, lessons] = await Promise.all([
+    const [enrollments, batches, modules, outlineModules, recordings] = await Promise.all([
       this.dataSource.getRepository(Enrollment).find({ where: { course: { id: In(ids) } }, relations: { course: true } }),
       this.dataSource.getRepository(Batch).find({ where: { course: { id: In(ids) } }, relations: { course: true } }),
       this.dataSource.getRepository(CourseModule).find({ where: { course: { id: In(ids) } }, relations: { course: true } }),
       this.dataSource.getRepository(CourseOutlineModule).find({ where: { course: { id: In(ids) } }, relations: { course: true }, order: { sortOrder: 'ASC' } }),
-      this.dataSource.getRepository(Lesson).find({ where: { course: { id: In(ids) } }, relations: { course: true } }),
+      this.dataSource.getRepository(ClassRecording).find({ where: { course: { id: In(ids) } }, relations: { course: true } }),
     ]);
     return courses.map((course) => ({
       id: course.id,
@@ -401,7 +411,7 @@ export class CoursesService {
         modules.filter((item) => item.course.id === course.id).length,
         outlineModules.filter((item) => item.course.id === course.id).length,
       ),
-      lessonsCount: lessons.filter((item) => item.course.id === course.id).length,
+      lessonsCount: recordings.filter((item) => item.course.id === course.id).length,
       modules: this.adminCourseModules(course.id, modules, outlineModules)
         .sort((a, b) => a.sortOrder - b.sortOrder)
         .map((item) => ({
@@ -490,8 +500,6 @@ export class CoursesService {
     }
     const removed = existing.filter((item) => !requestedIds.has(item.id));
     if (removed.length) {
-      const lessonCount = await this.dataSource.getRepository(Lesson).count({ where: { module: { id: In(removed.map((item) => item.id)) } } });
-      if (lessonCount) throw new ConflictException('Modules with lessons cannot be removed. Move or delete their lessons first.');
       await repository.remove(removed);
     }
   }
@@ -659,9 +667,9 @@ export class CoursesService {
     const durationMonths = course.durationMonths ?? this.durationMonths(course);
     const monthlyFee = Number(course.monthlyFee ?? 5000);
     const quarterlyGross = monthlyFee * 3;
-    const quarterlyDiscountPercentage = this.offerPercentage(offers, 'quarterly-discount', 20);
+    const quarterlyDiscountPercentage = this.offerPercentage(offers, 'quarterly-discount');
     const fullCourseGross = durationMonths * monthlyFee;
-    const fullCourseDiscountPercentage = this.offerPercentage(offers, 'full-course-discount', 35);
+    const fullCourseDiscountPercentage = this.offerPercentage(offers, 'full-course-discount');
     return {
       course: {
         id: course.id,
@@ -693,10 +701,10 @@ export class CoursesService {
         fullCourseGross,
         fullCourseDiscountPercentage,
         fullCourseFinal: Math.max(0, fullCourseGross - Math.round(fullCourseGross * fullCourseDiscountPercentage / 100)),
-        quarterlyAvailable: durationMonths >= 6,
-        referralNewStudentDiscount: this.offerAmount(offers, 'referral-new-student-discount', 500),
-        referrerReward: 1000,
-        scholarshipDiscountPercentage: this.offerPercentage(offers, 'scholarship-discount', 50),
+        quarterlyAvailable: true,
+        referralNewStudentDiscount: this.offerAmount(offers, 'referral-new-student-discount'),
+        referrerReward: this.offerAmount(offers, 'referral-reward'),
+        scholarshipDiscountPercentage: this.offerPercentage(offers, 'scholarship-discount'),
         scholarshipRequiredScore: 80,
       },
       quarters: enrichOutlineFromCopy(
@@ -766,12 +774,12 @@ export class CoursesService {
     return course.durationUnit === 'months' ? Math.max(1, course.duration) : Math.max(1, Math.ceil(course.duration / 4));
   }
 
-  private offerPercentage(offers: Offer[], slug: string, fallback: number) {
-    return Number(offers.find((offer) => offer.slug === slug)?.discountPercentage ?? fallback);
+  private offerPercentage(offers: Offer[], slug: string) {
+    return Number(offers.find((offer) => offer.slug === slug)?.discountPercentage ?? 0);
   }
 
-  private offerAmount(offers: Offer[], slug: string, fallback: number) {
-    return Number(offers.find((offer) => offer.slug === slug)?.discountAmount ?? fallback);
+  private offerAmount(offers: Offer[], slug: string) {
+    return Number(offers.find((offer) => offer.slug === slug)?.discountAmount ?? 0);
   }
 
   private async getCourseScheduleSummary(courseId: string) {

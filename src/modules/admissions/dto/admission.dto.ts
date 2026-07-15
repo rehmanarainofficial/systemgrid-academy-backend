@@ -1,15 +1,19 @@
 import {
+  IsBoolean,
   IsDateString,
   IsEmail,
   IsIn,
+  IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
   Length,
   MaxLength,
   Matches,
+  Min,
 } from 'class-validator';
-import type { Gender, PaymentGateway, PaymentMethod, PricingPlanType } from '../../../database/entities';
+import type { Gender, OfferType, PaymentGateway, PaymentMethod, PricingPlanType } from '../../../database/entities';
 
 export class StartAdmissionDto {
   @IsEmail()
@@ -175,4 +179,92 @@ export class AdminAdmissionsQueryDto {
   @IsOptional()
   @IsIn(['all', 'email_pending', 'verified', 'payment_pending', 'payment_failed', 'payment_verified', 'enrolled', 'waitlisted', 'rejected', 'cancelled'])
   status?: string = 'all';
+}
+
+export class CreateAdminOfferDto {
+  @IsString()
+  @Length(2, 80)
+  name: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(90)
+  slug?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  description?: string;
+
+  @IsIn(['quarterly_discount', 'full_course_discount', 'scholarship_discount', 'referral_new_student_discount', 'referral_reward'])
+  type: OfferType;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  discountPercentage?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  discountAmount?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  appliesTo?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  minCourseDurationMonths?: number | null;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}
+
+export class UpdateAdminOfferDto {
+  @IsOptional()
+  @IsString()
+  @Length(2, 80)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(90)
+  slug?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  description?: string;
+
+  @IsOptional()
+  @IsIn(['quarterly_discount', 'full_course_discount', 'scholarship_discount', 'referral_new_student_discount', 'referral_reward'])
+  type?: OfferType;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  discountPercentage?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  discountAmount?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  appliesTo?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  minCourseDurationMonths?: number | null;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
 }
