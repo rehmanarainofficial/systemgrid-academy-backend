@@ -253,7 +253,7 @@ export class BatchesService {
     await this.log(actorId, 'create_schedule', id, { scheduleId: schedule.id, date: dto.date });
     await this.studentNotifications.notifyBatchStudents(id, {
       title: 'New class scheduled',
-      message: `A class for ${batch.title} is scheduled on ${dto.date} at ${dto.startTime.slice(0, 5)}.`,
+      message: `A class for ${batch.title} is scheduled on ${this.formatScheduleDate(dto.date)} at ${this.formatScheduleTime(dto.startTime)}.`,
       type: 'class',
       actionUrl: '/student/schedule',
     });
@@ -284,7 +284,7 @@ export class BatchesService {
     await this.log(actorId, 'update_schedule', id, { scheduleId, fields: Object.keys(dto) });
     await this.studentNotifications.notifyBatchStudents(id, {
       title: 'Class schedule updated',
-      message: `The class for ${batch.title} on ${schedule.date} was updated.`,
+      message: `The class for ${batch.title} on ${this.formatScheduleDate(schedule.date)} was updated.`,
       type: 'class',
       actionUrl: '/student/schedule',
     });
@@ -334,11 +334,26 @@ export class BatchesService {
     });
     await this.studentNotifications.notifyBatchStudents(batch.id, {
       title: 'Next class scheduled',
-      message: `The next class for ${batch.title} is scheduled on ${nextDate} at ${created.startTime.slice(0, 5)}.`,
+      message: `The next class for ${batch.title} is scheduled on ${this.formatScheduleDate(nextDate)} at ${this.formatScheduleTime(created.startTime)}.`,
       type: 'class',
       actionUrl: '/student/schedule',
     }, ['active']);
     return created.id;
+  }
+
+  private formatScheduleDate(date: string) {
+    const [year, month, day] = date.split('-');
+    if (!year || !month || !day) return date;
+    return `${day}/${month}/${year}`;
+  }
+
+  private formatScheduleTime(time: string) {
+    const [hourValue, minuteValue = '00'] = time.split(':');
+    const hour = Number(hourValue);
+    if (!Number.isFinite(hour)) return time;
+    const period = hour >= 12 ? 'PM' : 'AM';
+    const displayHour = hour % 12 || 12;
+    return `${displayHour}:${minuteValue.padStart(2, '0').slice(0, 2)} ${period}`;
   }
 
   private nextClassDate(fromDate: string, classDays: string[], endDate?: string) {
