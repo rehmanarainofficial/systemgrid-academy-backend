@@ -54,9 +54,39 @@ export class LeadsService {
       selectedCourse,
       ...leadData
     } = createLeadDto;
+    const normalizedEmail = leadData.email?.trim().toLowerCase() || undefined;
+    const normalizedPhone = leadData.phone?.trim() || '';
+    const normalizedPhoneDigits = normalizedPhone.replace(/\D/g, '');
+
+    if (normalizedEmail || normalizedPhoneDigits) {
+      const duplicateQuery = this.leadsRepository
+        .createQueryBuilder('lead')
+        .where('1 = 0');
+
+      if (normalizedEmail) {
+        duplicateQuery.orWhere('LOWER(lead.email) = :email', {
+          email: normalizedEmail,
+        });
+      }
+
+      if (normalizedPhoneDigits) {
+        duplicateQuery.orWhere(
+          "regexp_replace(COALESCE(lead.phone, ''), '[^0-9]', '', 'g') = :phoneDigits",
+          { phoneDigits: normalizedPhoneDigits },
+        );
+      }
+
+      const existingLead = await duplicateQuery
+        .orderBy('lead.createdAt', 'DESC')
+        .getOne();
+
+      if (existingLead) return existingLead;
+    }
 
     const lead = this.leadsRepository.create({
       ...leadData,
+      email: normalizedEmail,
+      phone: normalizedPhone,
       city,
       studentLevel: educationLevel,
       preferredMode,
