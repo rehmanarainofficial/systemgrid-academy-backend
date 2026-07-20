@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
 import { Brackets, DataSource, EntityManager, In, Not, Repository } from 'typeorm';
 import { UserRole } from '../../common/enums/user-role.enum';
+import { buildSpecialFeeAgreementDraft } from '../../common/fees/special-fee-agreement.util';
 import { ensureWalletAndReferralCode } from '../../common/referral/referral.util';
 import {
   Attendance,
@@ -26,6 +27,7 @@ import {
   User,
 } from '../../database/entities';
 import { AdminAlertsService } from '../notifications/admin-alerts.service';
+import { InstructorNotificationsService } from '../notifications/instructor-notifications.service';
 import { AdminStudentsQueryDto } from './dto/admin-students-query.dto';
 import { CreateAdminStudentDto } from './dto/create-admin-student.dto';
 import { EnrollAdminStudentDto } from './dto/enroll-admin-student.dto';
@@ -41,6 +43,7 @@ export class StudentsService {
     private readonly studentsRepository: Repository<StudentProfile>,
     private readonly dataSource: DataSource,
     private readonly adminAlertsService: AdminAlertsService,
+    private readonly instructorNotifications: InstructorNotificationsService,
   ) {}
 
   async findAdminList(query: AdminStudentsQueryDto) {
@@ -134,7 +137,12 @@ export class StudentsService {
         .getRawMany<{ city: string }>(),
     ]);
     return {
-      courses: courses.map((course) => ({ id: course.id, title: course.title })),
+      courses: courses.map((course) => ({
+        id: course.id,
+        title: course.title,
+        monthlyFee: Number(course.monthlyFee || 5000),
+        durationMonths: Math.max(1, Number(course.durationMonths || 1)),
+      })),
       batches: batches.map((batch) => ({
         id: batch.id,
         title: batch.title,
@@ -279,7 +287,7 @@ export class StudentsService {
     };
   }
 
-  async createAdmin(dto: CreateAdminStudentDto, actorId: string) {
+  async createAdmin(dto: CreateAdminStudentDto, actor: User) {
     const studentId = await this.dataSource.transaction(async (manager) => {
       const email = dto.email.trim().toLowerCase();
       if (await manager.findOne(User, { where: { email } })) {
@@ -325,6 +333,8 @@ export class StudentsService {
           status: dto.status,
         }),
       );
+      let enrollment: Enrollment | undefined;
+      let feePlan: FeePlan | undefined;
       if (dto.enrollment) {
         const course = await manager.findOne(Course, { where: { id: dto.enrollment.courseId } });
         if (!course) throw new BadRequestException('Course not found');
@@ -338,7 +348,7 @@ export class StudentsService {
             throw new BadRequestException('Batch does not belong to the selected course');
           }
         }
-        await manager.save(manager.create(Enrollment, {
+        enrollment = await manager.save(manager.create(Enrollment, {
           student,
           course,
           batch,
@@ -347,20 +357,27 @@ export class StudentsService {
         }));
         student.courseInterest = course.title;
         await manager.save(student);
+        await this.instructorNotifications.notifyNewEnrollment(enrollment.id, manager);
+
+        if (dto.feePlan?.enabled) {
+          feePlan = await this.createInitialFeePlan(manager, enrollment, dto.feePlan, actor);
+        }
       }
       // Give every new student a wallet + their own referral code up front.
       await ensureWalletAndReferralCode(manager, student, user.name);
       await manager.save(
         manager.create(AuditLog, {
-          user: { id: actorId } as User,
-          action: 'create',
-          module: 'students',
-          recordId: student.id,
+            user: { id: actor.id } as User,
+            action: 'create',
+            module: 'students',
+            recordId: student.id,
           metadata: {
             email: user.email,
             source: dto.source ?? 'admin',
             emailVerified: true,
             enrolled: Boolean(dto.enrollment),
+            feePlanId: feePlan?.id,
+            specialFee: Boolean(feePlan?.hasSpecialFeeAgreement),
           },
         }),
       );
@@ -373,11 +390,17 @@ export class StudentsService {
           await manager.save(lead);
           await manager.save(
             manager.create(AuditLog, {
-              user: { id: actorId } as User,
+              user: { id: actor.id } as User,
               action: 'convert_to_student',
               module: 'leads',
               recordId: lead.id,
-              metadata: { studentId: student.id, source: 'admin_create' },
+              metadata: {
+                studentId: student.id,
+                source: 'admin_create',
+                enrollmentId: enrollment?.id,
+                feePlanId: feePlan?.id,
+                specialFee: Boolean(feePlan?.hasSpecialFeeAgreement),
+              },
             }),
           );
         }
@@ -393,6 +416,53 @@ export class StudentsService {
     });
 
     return this.findAdminDetail(studentId);
+  }
+
+  private async createInitialFeePlan(
+    manager: EntityManager,
+    enrollment: Enrollment,
+    dto: NonNullable<CreateAdminStudentDto['feePlan']>,
+    actor: User,
+  ) {
+    const courseDurationMonths = Math.max(1, Number(enrollment.course.durationMonths || 1));
+    const standardMonthlyFee = Number(enrollment.course.monthlyFee || 5000);
+    const specialDraft = buildSpecialFeeAgreementDraft(dto, standardMonthlyFee, {
+      id: actor.id,
+      role: actor.role,
+    });
+    const baseMonthlyFee = specialDraft.hasSpecialFeeAgreement
+      ? Number(specialDraft.agreedMonthlyFee)
+      : standardMonthlyFee;
+    const totalAmount = standardMonthlyFee * courseDurationMonths;
+    const discountAmount = specialDraft.hasSpecialFeeAgreement
+      ? Number(specialDraft.specialFeeDiscountPerMonth) * courseDurationMonths
+      : 0;
+    const payableAmount = totalAmount - discountAmount;
+    const paidAmount = Number(dto.paidAmount ?? 0);
+    if (paidAmount > payableAmount) {
+      throw new BadRequestException('Paid amount cannot exceed payable amount');
+    }
+
+    return manager.save(FeePlan, manager.create(FeePlan, {
+      enrollment,
+      student: enrollment.student,
+      course: enrollment.course,
+      pricingType: 'monthly',
+      billingCycle: 'monthly',
+      courseDurationMonths,
+      baseMonthlyFee,
+      totalAmount,
+      discountAmount,
+      discountPercentage: totalAmount > 0 ? Number(((discountAmount / totalAmount) * 100).toFixed(2)) : 0,
+      payableAmount,
+      paidAmount,
+      pendingAmount: payableAmount - paidAmount,
+      installmentType: 'monthly',
+      installmentsPaid: paidAmount > 0 ? 1 : 0,
+      dueDate: dto.dueDate,
+      status: payableAmount - paidAmount <= 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid',
+      ...specialDraft,
+    }));
   }
 
   async resetPassword(id: string, dto: ResetStudentPasswordDto, actorId: string) {
@@ -557,6 +627,7 @@ export class StudentsService {
       courseId: course.id,
       batchId: batch?.id,
     });
+    await this.instructorNotifications.notifyNewEnrollment(enrollment.id);
     return { message: 'Student enrolled successfully', enrollmentId: enrollment.id };
   }
 
@@ -569,12 +640,17 @@ export class StudentsService {
     const repository = this.dataSource.getRepository(Enrollment);
     const enrollment = await repository.findOne({
       where: { id: enrollmentId, student: { id } },
-      relations: { student: true, course: true, batch: { course: true } },
+      relations: { student: true, course: true, batch: { course: true }, feePlans: true },
     });
     if (!enrollment) throw new NotFoundException('Enrollment not found');
 
     let course = enrollment.course;
     if (dto.courseId && dto.courseId !== enrollment.course.id) {
+      if (enrollment.feePlans?.length) {
+        throw new ConflictException(
+          'This enrollment already has a fee plan. Create a new enrollment/fee plan or clear unpaid billing before changing the course.',
+        );
+      }
       course =
         (await this.dataSource.getRepository(Course).findOne({
           where: { id: dto.courseId },

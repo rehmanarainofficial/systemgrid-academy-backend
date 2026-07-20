@@ -16,12 +16,14 @@ import {
   Enrollment,
   Instructor,
   ClassRecording,
+  Notification,
   User,
 } from '../../database/entities';
 import { CreateInstructorAssignmentDto } from './dto/create-instructor-assignment.dto';
 import { CreateInstructorClassRecordingDto } from './dto/create-instructor-class-recording.dto';
 import { UpdateInstructorClassRecordingDto } from './dto/update-instructor-class-recording.dto';
 import { GradeInstructorSubmissionDto } from './dto/grade-instructor-submission.dto';
+import { InstructorNotificationsQueryDto } from './dto/instructor-notifications-query.dto';
 import { MarkInstructorAttendanceDto } from './dto/mark-instructor-attendance.dto';
 import { StudentNotificationsService } from '../notifications/student-notifications.service';
 
@@ -113,6 +115,113 @@ export class InstructorPortalService {
       },
       batches: batches.map((b) => this.mapBatch(b)),
     };
+  }
+
+  async getNotifications(userId: string, query: InstructorNotificationsQueryDto) {
+    await this.instructor(userId);
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 10;
+    const notificationsRepository = this.dataSource.getRepository(Notification);
+    const notificationsQuery = notificationsRepository
+      .createQueryBuilder('notification')
+      .leftJoinAndSelect('notification.user', 'user')
+      .where('user.id = :userId', { userId });
+
+    if (query.status === 'unread') {
+      notificationsQuery.andWhere('notification.isRead = false');
+    }
+    if (query.status === 'read') {
+      notificationsQuery.andWhere('notification.isRead = true');
+    }
+    if (query.type && query.type !== 'all') {
+      notificationsQuery.andWhere('notification.type = :type', { type: query.type });
+    }
+    if (query.search?.trim()) {
+      notificationsQuery.andWhere(
+        '(LOWER(notification.title) LIKE :search OR LOWER(notification.message) LIKE :search)',
+        { search: `%${query.search.trim().toLowerCase()}%` },
+      );
+    }
+
+    const [notifications, totalItems] = await notificationsQuery
+      .orderBy('notification.createdAt', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+
+    const summaryItems = await notificationsRepository.find({
+      where: { user: { id: userId } },
+    });
+
+    return {
+      summary: {
+        total: summaryItems.length,
+        unread: summaryItems.filter((item) => !item.isRead).length,
+        read: summaryItems.filter((item) => item.isRead).length,
+        studentUpdates: summaryItems.filter((item) => item.type === 'info').length,
+        classUpdates: summaryItems.filter((item) => item.type === 'class').length,
+        assignments: summaryItems.filter((item) => item.type === 'assignment').length,
+      },
+      notifications: notifications.map((notification) => ({
+        id: notification.id,
+        title: notification.title,
+        message: notification.message,
+        type: notification.type,
+        isRead: notification.isRead,
+        createdAt: notification.createdAt.toISOString(),
+        actionUrl: notification.actionUrl ?? '',
+      })),
+      pagination: {
+        page,
+        limit,
+        totalPages: Math.max(Math.ceil(totalItems / limit), 1),
+        totalItems,
+      },
+    };
+  }
+
+  async getNotificationCount(userId: string) {
+    await this.instructor(userId);
+    const unreadCount = await this.dataSource.getRepository(Notification).count({
+      where: { user: { id: userId }, isRead: false },
+    });
+    return { unreadCount };
+  }
+
+  async markNotificationAsRead(userId: string, notificationId: string) {
+    await this.instructor(userId);
+    const notification = await this.dataSource.getRepository(Notification).findOne({
+      where: { id: notificationId, user: { id: userId } },
+    });
+    if (!notification) throw new NotFoundException('Notification not found');
+    if (!notification.isRead) {
+      notification.isRead = true;
+      await this.dataSource.getRepository(Notification).save(notification);
+    }
+    return { message: 'Notification marked as read' };
+  }
+
+  async markAllNotificationsAsRead(userId: string) {
+    await this.instructor(userId);
+    await this.dataSource
+      .getRepository(Notification)
+      .createQueryBuilder()
+      .update(Notification)
+      .set({ isRead: true })
+      .where('user_id = :userId', { userId })
+      .andWhere('is_read = false')
+      .execute();
+    return { message: 'All notifications marked as read' };
+  }
+
+  async deleteNotification(userId: string, notificationId: string) {
+    await this.instructor(userId);
+    const notification = await this.dataSource.getRepository(Notification).findOne({
+      where: { id: notificationId, user: { id: userId } },
+    });
+    if (!notification) throw new NotFoundException('Notification not found');
+    await this.dataSource.getRepository(Notification).remove(notification);
+    return { message: 'Notification deleted' };
   }
 
   async getBatches(userId: string) {

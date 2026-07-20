@@ -1,4 +1,4 @@
-import { IsDateString, IsIn, IsNumber, IsOptional, IsUUID, Min } from 'class-validator';
+import { IsBoolean, IsDateString, IsIn, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 
 export class UpdateFeePlanDto {
   @IsOptional()
@@ -31,4 +31,23 @@ export class UpdateFeePlanDto {
   @IsOptional()
   @IsDateString()
   dueDate?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  specialFeeEnabled?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  agreedMonthlyFee?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  specialFeeReason?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  specialFeeNotes?: string;
 }

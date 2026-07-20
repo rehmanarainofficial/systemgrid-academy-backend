@@ -21,6 +21,7 @@ import { CreateInstructorAssignmentDto } from './dto/create-instructor-assignmen
 import { CreateInstructorClassRecordingDto } from './dto/create-instructor-class-recording.dto';
 import { UpdateInstructorClassRecordingDto } from './dto/update-instructor-class-recording.dto';
 import { GradeInstructorSubmissionDto } from './dto/grade-instructor-submission.dto';
+import { InstructorNotificationsQueryDto } from './dto/instructor-notifications-query.dto';
 import { MarkInstructorAttendanceDto } from './dto/mark-instructor-attendance.dto';
 import { InstructorPortalService } from './instructor-portal.service';
 
@@ -35,6 +36,40 @@ export class InstructorPortalController {
   @Get('dashboard')
   dashboard(@Req() req: AuthenticatedRequest) {
     return this.service.getDashboard(req.user.id);
+  }
+
+  @Get('notifications')
+  notifications(
+    @Req() req: AuthenticatedRequest,
+    @Query() query: InstructorNotificationsQueryDto,
+  ) {
+    return this.service.getNotifications(req.user.id, query);
+  }
+
+  @Get('notifications/count')
+  notificationCount(@Req() req: AuthenticatedRequest) {
+    return this.service.getNotificationCount(req.user.id);
+  }
+
+  @Patch('notifications/read-all')
+  markAllNotificationsAsRead(@Req() req: AuthenticatedRequest) {
+    return this.service.markAllNotificationsAsRead(req.user.id);
+  }
+
+  @Patch('notifications/:notificationId/read')
+  markNotificationAsRead(
+    @Req() req: AuthenticatedRequest,
+    @Param('notificationId') notificationId: string,
+  ) {
+    return this.service.markNotificationAsRead(req.user.id, notificationId);
+  }
+
+  @Delete('notifications/:notificationId')
+  deleteNotification(
+    @Req() req: AuthenticatedRequest,
+    @Param('notificationId') notificationId: string,
+  ) {
+    return this.service.deleteNotification(req.user.id, notificationId);
   }
 
   @Get('batches')

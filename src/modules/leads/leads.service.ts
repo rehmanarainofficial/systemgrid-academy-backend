@@ -8,13 +8,15 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
 import { randomBytes } from 'crypto';
-import { Brackets, DataSource, Repository } from 'typeorm';
+import { Brackets, DataSource, EntityManager, Repository } from 'typeorm';
 import { UserRole } from '../../common/enums/user-role.enum';
+import { buildSpecialFeeAgreementDraft } from '../../common/fees/special-fee-agreement.util';
 import {
   AuditLog,
   Batch,
   Course,
   Enrollment,
+  FeePlan,
   Gender,
   LeadSource,
   Lead,
@@ -24,6 +26,7 @@ import {
 } from '../../database/entities';
 import { AdmissionEmailService } from '../admissions/email.service';
 import { AdminAlertsService } from '../notifications/admin-alerts.service';
+import { InstructorNotificationsService } from '../notifications/instructor-notifications.service';
 import { AdminLeadsQueryDto } from './dto/admin-leads-query.dto';
 import { ConvertLeadToStudentDto } from './dto/convert-lead-to-student.dto';
 import { CreateLeadDto } from './dto/create-lead.dto';
@@ -39,6 +42,7 @@ export class LeadsService {
     private readonly dataSource: DataSource,
     private readonly adminAlertsService: AdminAlertsService,
     private readonly admissionEmailService: AdmissionEmailService,
+    private readonly instructorNotifications: InstructorNotificationsService,
   ) {}
 
   async create(createLeadDto: CreateLeadDto) {
@@ -206,7 +210,7 @@ export class LeadsService {
   async convertToStudent(
     id: string,
     dto: ConvertLeadToStudentDto,
-    actorId: string,
+    actor: User,
   ) {
     const result = await this.dataSource.transaction(async (manager) => {
       const lead = await manager.findOne(Lead, { where: { id } });
@@ -265,6 +269,7 @@ export class LeadsService {
       );
 
       let enrollment: Enrollment | undefined;
+      let feePlan: FeePlan | undefined;
       if (dto.courseId) {
         const course = await manager.findOne(Course, {
           where: { id: dto.courseId },
@@ -290,6 +295,11 @@ export class LeadsService {
             progressPercentage: 0,
           }),
         );
+        await this.instructorNotifications.notifyNewEnrollment(enrollment.id, manager);
+
+        if (dto.createFeePlan || dto.specialFeeEnabled) {
+          feePlan = await this.createInitialFeePlan(manager, enrollment, dto, actor);
+        }
       }
 
       lead.status = 'converted';
@@ -297,11 +307,16 @@ export class LeadsService {
       await manager.save(lead);
       await manager.save(
         manager.create(AuditLog, {
-          user: { id: actorId } as User,
+          user: { id: actor.id } as User,
           action: 'convert_to_student',
           module: 'leads',
           recordId: lead.id,
-          metadata: { studentId: profile.id, enrollmentId: enrollment?.id },
+          metadata: {
+            studentId: profile.id,
+            enrollmentId: enrollment?.id,
+            feePlanId: feePlan?.id,
+            specialFee: Boolean(feePlan?.hasSpecialFeeAgreement),
+          },
         }),
       );
 
@@ -327,6 +342,48 @@ export class LeadsService {
     });
 
     return result;
+  }
+
+  private async createInitialFeePlan(
+    manager: EntityManager,
+    enrollment: Enrollment,
+    dto: ConvertLeadToStudentDto,
+    actor: User,
+  ) {
+    const courseDurationMonths = Math.max(1, Number(enrollment.course.durationMonths || 1));
+    const standardMonthlyFee = Number(enrollment.course.monthlyFee || 5000);
+    const specialDraft = buildSpecialFeeAgreementDraft(dto, standardMonthlyFee, {
+      id: actor.id,
+      role: actor.role,
+    });
+    const baseMonthlyFee = specialDraft.hasSpecialFeeAgreement
+      ? Number(specialDraft.agreedMonthlyFee)
+      : standardMonthlyFee;
+    const totalAmount = standardMonthlyFee * courseDurationMonths;
+    const discountAmount = specialDraft.hasSpecialFeeAgreement
+      ? Number(specialDraft.specialFeeDiscountPerMonth) * courseDurationMonths
+      : 0;
+    const payableAmount = totalAmount - discountAmount;
+
+    return manager.save(FeePlan, manager.create(FeePlan, {
+      enrollment,
+      student: enrollment.student,
+      course: enrollment.course,
+      pricingType: 'monthly',
+      billingCycle: 'monthly',
+      courseDurationMonths,
+      baseMonthlyFee,
+      totalAmount,
+      discountAmount,
+      discountPercentage: totalAmount > 0 ? Number(((discountAmount / totalAmount) * 100).toFixed(2)) : 0,
+      payableAmount,
+      paidAmount: 0,
+      pendingAmount: payableAmount,
+      installmentType: 'monthly',
+      installmentsPaid: 0,
+      status: 'unpaid',
+      ...specialDraft,
+    }));
   }
 
   private mapLead(lead: Lead) {

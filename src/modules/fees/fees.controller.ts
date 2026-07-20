@@ -20,7 +20,7 @@ export class FeesController {
   @Get() findAll(@Query() query: AdminFeesQueryDto) { return this.service.findAll(query); }
   @Get('options') options() { return this.service.options(); }
   @Get(':id') findOne(@Param('id') id: string) { return this.service.findOne(id); }
-  @Post() create(@Body() dto: CreateFeePlanDto, @Req() request: AdminRequest) { return this.service.create(dto, request.user.id); }
-  @Patch(':id') update(@Param('id') id: string, @Body() dto: UpdateFeePlanDto, @Req() request: AdminRequest) { return this.service.update(id, dto, request.user.id); }
+  @Post() create(@Body() dto: CreateFeePlanDto, @Req() request: AdminRequest) { return this.service.create(dto, request.user); }
+  @Patch(':id') update(@Param('id') id: string, @Body() dto: UpdateFeePlanDto, @Req() request: AdminRequest) { return this.service.update(id, dto, request.user); }
   @Delete(':id') remove(@Param('id') id: string, @Req() request: AdminRequest) { return this.service.remove(id, request.user.id); }
 }

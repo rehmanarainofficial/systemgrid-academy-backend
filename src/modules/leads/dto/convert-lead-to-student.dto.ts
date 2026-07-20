@@ -1,4 +1,4 @@
-import { IsEmail, IsOptional, IsString, IsUUID, Matches, MinLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsNumber, IsOptional, IsString, IsUUID, Matches, MaxLength, Min, MinLength } from 'class-validator';
 
 export class ConvertLeadToStudentDto {
   @IsOptional()
@@ -20,4 +20,27 @@ export class ConvertLeadToStudentDto {
   @IsOptional()
   @IsUUID()
   batchId?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  createFeePlan?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  specialFeeEnabled?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  agreedMonthlyFee?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  specialFeeReason?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  specialFeeNotes?: string;
 }

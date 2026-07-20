@@ -50,7 +50,7 @@ export class StudentsController {
 
   @Post()
   create(@Body() dto: CreateAdminStudentDto, @Req() request: AdminRequest) {
-    return this.studentsService.createAdmin(dto, request.user.id);
+    return this.studentsService.createAdmin(dto, request.user);
   }
 
   @Patch(':id')

@@ -56,6 +56,7 @@ import { PricingService } from './pricing.service';
 import { UploadsService } from '../uploads/uploads.service';
 import type { UploadedFileData } from '../uploads/uploads.service';
 import { AdminAlertsService } from '../notifications/admin-alerts.service';
+import { InstructorNotificationsService } from '../notifications/instructor-notifications.service';
 
 @Injectable()
 export class AdmissionsService {
@@ -66,6 +67,7 @@ export class AdmissionsService {
     private readonly configService: ConfigService,
     private readonly uploadsService: UploadsService,
     private readonly adminAlertsService: AdminAlertsService,
+    private readonly instructorNotifications: InstructorNotificationsService,
   ) {}
 
   async calculatePricing(dto: PricingCalculateDto) {
@@ -819,6 +821,7 @@ export class AdmissionsService {
       type: 'payment',
       actionUrl: '/student/dashboard',
     }));
+    await this.instructorNotifications.notifyNewEnrollment(enrollment.id, manager);
     await manager.save(AuditLog, manager.create(AuditLog, {
       user: params.receivedById ? ({ id: params.receivedById } as User) : undefined,
       action: params.paymentIntent ? 'payment_verified_enroll_student' : 'offline_payment_enroll_student',

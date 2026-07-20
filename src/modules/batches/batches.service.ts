@@ -22,6 +22,7 @@ import { EnrollBatchStudentDto, UpdateBatchEnrollmentStatusDto } from './dto/enr
 import { MarkBatchAttendanceDto } from './dto/mark-batch-attendance.dto';
 import { UpdateAdminBatchDto } from './dto/update-admin-batch.dto';
 import { UpdateBatchScheduleDto } from './dto/update-batch-schedule.dto';
+import { InstructorNotificationsService } from '../notifications/instructor-notifications.service';
 import { StudentNotificationsService } from '../notifications/student-notifications.service';
 
 @Injectable()
@@ -30,6 +31,7 @@ export class BatchesService {
     @InjectRepository(Batch) private readonly repository: Repository<Batch>,
     private readonly dataSource: DataSource,
     private readonly studentNotifications: StudentNotificationsService,
+    private readonly instructorNotifications: InstructorNotificationsService,
   ) {}
 
   async findAll(query: AdminBatchesQueryDto) {
@@ -184,6 +186,7 @@ export class BatchesService {
       type: 'info',
       actionUrl: '/student/my-courses',
     });
+    await this.instructorNotifications.notifyNewEnrollment(enrollment.id);
     return { message: 'Student enrolled successfully', enrollmentId: enrollment.id };
   }
 

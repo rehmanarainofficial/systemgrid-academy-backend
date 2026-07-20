@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Brackets, DataSource } from 'typeorm';
-import { AuditLog, Course, Enrollment, FeePlan, Payment, StudentProfile, User } from '../../database/entities';
+import { buildSpecialFeeAgreementDraft } from '../../common/fees/special-fee-agreement.util';
+import { AuditLog, Course, Enrollment, FeePlan, Payment, PricingPlanType, StudentProfile, User } from '../../database/entities';
 import { AdminFeesQueryDto } from './dto/admin-fees-query.dto';
 import { CreateFeePlanDto } from './dto/create-fee-plan.dto';
 import { UpdateFeePlanDto } from './dto/update-fee-plan.dto';
@@ -17,6 +18,7 @@ export class FeesService {
       .leftJoinAndSelect('student.user', 'user')
       .leftJoinAndSelect('enrollment.course', 'course')
       .leftJoinAndSelect('enrollment.batch', 'batch')
+      .leftJoinAndSelect('plan.specialFeeApprovedBy', 'specialFeeApprovedBy')
       .orderBy('plan.createdAt', 'DESC');
     if (query.search?.trim()) {
       const search = `%${query.search.trim()}%`;
@@ -54,43 +56,84 @@ export class FeesService {
     const feeEnrollmentIds = new Set(existingPlans.map((item) => item.enrollment.id));
     return {
       students: students.map((student) => ({ id: student.id, name: student.user.name, email: student.user.email })),
-      enrollments: enrollments.map((enrollment) => ({ id: enrollment.id, studentId: enrollment.student.id, courseId: enrollment.course.id, courseTitle: enrollment.course.title, batchId: enrollment.batch?.id ?? '', batchTitle: enrollment.batch?.title ?? '', status: enrollment.status, hasFeePlan: feeEnrollmentIds.has(enrollment.id) })),
-      courses: courses.map((course) => ({ id: course.id, title: course.title })),
+      enrollments: enrollments.map((enrollment) => ({
+        id: enrollment.id,
+        studentId: enrollment.student.id,
+        courseId: enrollment.course.id,
+        courseTitle: enrollment.course.title,
+        monthlyFee: Number(enrollment.course.monthlyFee || 5000),
+        durationMonths: Math.max(1, Number(enrollment.course.durationMonths || 1)),
+        batchId: enrollment.batch?.id ?? '',
+        batchTitle: enrollment.batch?.title ?? '',
+        status: enrollment.status,
+        hasFeePlan: feeEnrollmentIds.has(enrollment.id),
+      })),
+      courses: courses.map((course) => ({
+        id: course.id,
+        title: course.title,
+        monthlyFee: Number(course.monthlyFee || 5000),
+        durationMonths: Math.max(1, Number(course.durationMonths || 1)),
+      })),
       batches: enrollments.filter((item) => item.batch).map((item) => ({ id: item.batch!.id, title: item.batch!.title, courseId: item.course.id })),
     };
   }
 
   async findOne(id: string) {
-    const plan = await this.dataSource.getRepository(FeePlan).findOne({ where: { id }, relations: { enrollment: { student: { user: true }, course: true, batch: true } } });
+    const plan = await this.dataSource.getRepository(FeePlan).findOne({ where: { id }, relations: { enrollment: { student: { user: true }, course: true, batch: true }, specialFeeApprovedBy: true } });
     if (!plan) throw new NotFoundException('Fee plan not found');
     return this.mapPlan(plan);
   }
 
-  async create(dto: CreateFeePlanDto, actorId: string) {
+  async create(dto: CreateFeePlanDto, actor: User) {
     const enrollment = await this.enrollment(dto.studentId, dto.enrollmentId);
     const existing = await this.dataSource.getRepository(FeePlan).findOne({ where: { enrollment: { id: dto.enrollmentId } } });
     if (existing) throw new ConflictException('This enrollment already has a fee plan');
-    const values = this.calculate(dto.totalAmount, dto.discountAmount ?? 0, dto.paidAmount ?? 0);
-    const plan = await this.dataSource.getRepository(FeePlan).save({ enrollment, ...values, installmentType: dto.installmentType, dueDate: dto.dueDate });
-    await this.log(actorId, 'create', plan.id, { enrollmentId: enrollment.id });
+    const values = this.buildPlanValues(enrollment, dto, actor);
+    const repository = this.dataSource.getRepository(FeePlan);
+    const plan = await repository.save(repository.create({
+      enrollment,
+      ...values,
+      dueDate: dto.dueDate,
+    }));
+    await this.log(actor.id, 'create', plan.id, { enrollmentId: enrollment.id, specialFee: values.hasSpecialFeeAgreement });
     return this.findOne(plan.id);
   }
 
-  async update(id: string, dto: UpdateFeePlanDto, actorId: string) {
+  async update(id: string, dto: UpdateFeePlanDto, actor: User) {
     const repository = this.dataSource.getRepository(FeePlan);
-    const plan = await repository.findOne({ where: { id }, relations: { enrollment: { student: true } } });
+    const plan = await repository.findOne({ where: { id }, relations: { enrollment: { student: { user: true }, course: true, batch: true }, specialFeeApprovedBy: true } });
     if (!plan) throw new NotFoundException('Fee plan not found');
     if (dto.studentId || dto.enrollmentId) {
       plan.enrollment = await this.enrollment(dto.studentId ?? plan.enrollment.student.id, dto.enrollmentId ?? plan.enrollment.id);
+      plan.student = plan.enrollment.student;
+      plan.course = plan.enrollment.course;
     }
-    const totalAmount = dto.totalAmount ?? Number(plan.totalAmount);
-    const discountAmount = dto.discountAmount ?? Number(plan.discountAmount);
-    const paidAmount = dto.paidAmount ?? Number(plan.paidAmount);
-    Object.assign(plan, this.calculate(totalAmount, discountAmount, paidAmount));
+
+    const wantsSpecialFeeUpdate =
+      dto.specialFeeEnabled === true ||
+      dto.agreedMonthlyFee !== undefined ||
+      dto.specialFeeReason !== undefined ||
+      dto.specialFeeNotes !== undefined;
+
+    if (wantsSpecialFeeUpdate || dto.specialFeeEnabled === false) {
+      Object.assign(plan, this.buildPlanValues(plan.enrollment, {
+        ...dto,
+        totalAmount: dto.totalAmount ?? Number(plan.totalAmount),
+        discountAmount: dto.discountAmount ?? Number(plan.discountAmount),
+        paidAmount: dto.paidAmount ?? Number(plan.paidAmount),
+        installmentType: dto.installmentType ?? plan.installmentType,
+      }, actor));
+    } else {
+      const totalAmount = dto.totalAmount ?? Number(plan.totalAmount);
+      const discountAmount = dto.discountAmount ?? Number(plan.discountAmount);
+      const paidAmount = dto.paidAmount ?? Number(plan.paidAmount);
+      Object.assign(plan, this.calculate(totalAmount, discountAmount, paidAmount));
+      plan.discountPercentage = this.discountPercentage(totalAmount, discountAmount);
+    }
     if (dto.installmentType) plan.installmentType = dto.installmentType;
     if (dto.dueDate !== undefined) plan.dueDate = dto.dueDate;
     await repository.save(plan);
-    await this.log(actorId, 'update', id, { fields: Object.keys(dto) });
+    await this.log(actor.id, 'update', id, { fields: Object.keys(dto), specialFee: plan.hasSpecialFeeAgreement });
     return this.findOne(id);
   }
 
@@ -111,12 +154,57 @@ export class FeesService {
     return enrollment;
   }
 
+  private buildPlanValues(
+    enrollment: Enrollment,
+    dto: CreateFeePlanDto | (UpdateFeePlanDto & Required<Pick<CreateFeePlanDto, 'installmentType'>>),
+    actor: User,
+  ) {
+    const standardMonthlyFee = Number(enrollment.course.monthlyFee || 5000);
+    const courseDurationMonths = this.courseDurationMonths(enrollment.course);
+    const specialDraft = buildSpecialFeeAgreementDraft(dto, standardMonthlyFee, { id: actor.id, role: actor.role });
+    const isSpecial = specialDraft.hasSpecialFeeAgreement;
+    const baseMonthlyFee = isSpecial ? Number(specialDraft.agreedMonthlyFee) : standardMonthlyFee;
+    const totalAmount = isSpecial ? standardMonthlyFee * courseDurationMonths : Number(dto.totalAmount);
+    const discountAmount = isSpecial
+      ? Number(specialDraft.specialFeeDiscountPerMonth) * courseDurationMonths
+      : Number(dto.discountAmount ?? 0);
+    const paidAmount = Number(dto.paidAmount ?? 0);
+    const billingCycle = (isSpecial
+      ? 'monthly'
+      : dto.installmentType === 'monthly'
+        ? 'monthly'
+        : dto.installmentType === 'custom'
+          ? 'monthly'
+          : 'full_course') as PricingPlanType;
+    return {
+      student: enrollment.student,
+      course: enrollment.course,
+      pricingType: billingCycle,
+      billingCycle,
+      courseDurationMonths,
+      baseMonthlyFee,
+      discountPercentage: this.discountPercentage(totalAmount, discountAmount),
+      installmentType: isSpecial ? 'monthly' : dto.installmentType,
+      ...specialDraft,
+      ...this.calculate(totalAmount, discountAmount, paidAmount),
+    };
+  }
+
   private calculate(totalAmount: number, discountAmount: number, paidAmount: number) {
     if (discountAmount > totalAmount) throw new BadRequestException('Discount cannot exceed total amount');
     const payableAmount = totalAmount - discountAmount;
     if (paidAmount > payableAmount) throw new BadRequestException('Paid amount cannot exceed payable amount');
     const pendingAmount = payableAmount - paidAmount;
-    return { totalAmount, discountAmount, payableAmount, paidAmount, pendingAmount, status: pendingAmount <= 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid' as 'paid' | 'partial' | 'unpaid' };
+    const status = pendingAmount <= 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
+    return { totalAmount, discountAmount, payableAmount, paidAmount, pendingAmount, status: status as 'paid' | 'partial' | 'unpaid' };
+  }
+
+  private discountPercentage(totalAmount: number, discountAmount: number) {
+    return totalAmount > 0 ? Number(((discountAmount / totalAmount) * 100).toFixed(2)) : 0;
+  }
+
+  private courseDurationMonths(course: Course) {
+    return Math.max(1, Number(course.durationMonths || 1));
   }
 
   private mapPlan(plan: FeePlan) {
@@ -128,12 +216,23 @@ export class FeesService {
       studentEmail: plan.enrollment.student.user.email,
       courseTitle: plan.enrollment.course.title,
       batchTitle: plan.enrollment.batch?.title ?? '',
+      baseMonthlyFee: Number(plan.baseMonthlyFee ?? 0),
+      courseDurationMonths: Number(plan.courseDurationMonths ?? 1),
       totalAmount: Number(plan.totalAmount),
       discountAmount: Number(plan.discountAmount),
       payableAmount: Number(plan.payableAmount),
       paidAmount: Number(plan.paidAmount),
       pendingAmount: Number(plan.pendingAmount),
       installmentType: plan.installmentType,
+      billingCycle: plan.billingCycle ?? plan.pricingType ?? null,
+      hasSpecialFeeAgreement: Boolean(plan.hasSpecialFeeAgreement),
+      standardMonthlyFee: plan.standardMonthlyFee ? Number(plan.standardMonthlyFee) : null,
+      agreedMonthlyFee: plan.agreedMonthlyFee ? Number(plan.agreedMonthlyFee) : null,
+      specialFeeDiscountPerMonth: Number(plan.specialFeeDiscountPerMonth ?? 0),
+      specialFeeReason: plan.specialFeeReason ?? '',
+      specialFeeNotes: plan.specialFeeNotes ?? '',
+      specialFeeApprovedByName: plan.specialFeeApprovedBy?.name ?? '',
+      specialFeeApprovedAt: plan.specialFeeApprovedAt ?? null,
       dueDate: plan.dueDate ?? null,
       status: plan.status,
     };

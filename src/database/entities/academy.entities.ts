@@ -1292,6 +1292,31 @@ export class FeePlan {
   @Column({ name: 'billing_cycle', nullable: true })
   billingCycle?: PricingPlanType;
 
+  @Column({ name: 'has_special_fee_agreement', default: false })
+  hasSpecialFeeAgreement: boolean;
+
+  @Column({ name: 'standard_monthly_fee', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  standardMonthlyFee?: number;
+
+  @Column({ name: 'agreed_monthly_fee', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  agreedMonthlyFee?: number;
+
+  @Column({ name: 'special_fee_discount_per_month', type: 'numeric', precision: 12, scale: 2, default: 0 })
+  specialFeeDiscountPerMonth: number;
+
+  @Column({ name: 'special_fee_reason', nullable: true })
+  specialFeeReason?: string;
+
+  @Column({ name: 'special_fee_notes', type: 'text', nullable: true })
+  specialFeeNotes?: string;
+
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'special_fee_approved_by_id' })
+  specialFeeApprovedBy?: Relation<User>;
+
+  @Column({ name: 'special_fee_approved_at', type: 'timestamptz', nullable: true })
+  specialFeeApprovedAt?: Date;
+
   @Column({ name: 'due_date', type: 'date', nullable: true })
   dueDate?: string;
 

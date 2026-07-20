@@ -4,11 +4,13 @@ import {
   IsEmail,
   IsIn,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
   Matches,
   MaxLength,
+  Min,
   MinLength,
   ValidateNested,
 } from 'class-validator';
@@ -26,6 +28,39 @@ class InitialEnrollmentDto {
   @IsOptional()
   @IsIn(['pending', 'active'])
   status: 'pending' | 'active' = 'active';
+}
+
+class InitialFeePlanDto {
+  @IsBoolean()
+  enabled: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  specialFeeEnabled?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  agreedMonthlyFee?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  paidAmount?: number;
+
+  @IsOptional()
+  @IsDateString()
+  dueDate?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  specialFeeReason?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  specialFeeNotes?: string;
 }
 
 export class CreateAdminStudentDto {
@@ -124,6 +159,11 @@ export class CreateAdminStudentDto {
   @ValidateNested()
   @Type(() => InitialEnrollmentDto)
   enrollment: InitialEnrollmentDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => InitialFeePlanDto)
+  feePlan?: InitialFeePlanDto;
 
   @IsOptional()
   @IsUUID()

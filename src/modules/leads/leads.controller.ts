@@ -76,7 +76,7 @@ export class AdminLeadsController {
     @Body() dto: ConvertLeadToStudentDto,
     @Req() request: AdminRequest,
   ) {
-    return this.leadsService.convertToStudent(id, dto, request.user.id);
+    return this.leadsService.convertToStudent(id, dto, request.user);
   }
 
   @Delete(':id')
