@@ -176,8 +176,8 @@ Lead/demo payload:
 ```json
 {
   "name": "Student Name",
-  "phone": "03433133834",
-  "email": "student@example.com",
+  "phone": "03433xxxxxx",
+  "email": "[EMAIL_ADDRESS]",
   "courseInterest": "Web Development",
   "message": "I want to join the next batch"
 }
